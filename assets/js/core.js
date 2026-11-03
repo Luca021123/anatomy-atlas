@@ -339,14 +339,29 @@
       doc.body.appendChild(inp); inp.click();
     });
   };
-  /** Print only the given element (adds .print-target and hides the rest while printing). */
+  /**
+   * Print only the given element, wherever it sits in the page: every sibling of the element
+   * and of each of its ancestors is hidden (class .print-hide) for the duration of printing.
+   */
   MT.print = function (el) {
     if (!el) { global.print(); return; }
-    el.classList.add('print-target'); doc.body.classList.add('print-only-target');
-    var done = function () { el.classList.remove('print-target'); doc.body.classList.remove('print-only-target'); global.removeEventListener('afterprint', done); };
+    var hidden = [];
+    for (var node = el; node && node.parentElement && node !== doc.body; node = node.parentElement) {
+      Array.prototype.forEach.call(node.parentElement.children, function (sib) {
+        if (sib !== node && !sib.classList.contains('print-hide')) { sib.classList.add('print-hide'); hidden.push(sib); }
+      });
+    }
+    el.classList.add('print-target');
+    var finished = false;
+    var done = function () {
+      if (finished) return; finished = true;
+      hidden.forEach(function (x) { x.classList.remove('print-hide'); });
+      el.classList.remove('print-target');
+      global.removeEventListener('afterprint', done);
+    };
     global.addEventListener('afterprint', done);
     global.print();
-    setTimeout(done, 3000);
+    setTimeout(done, 15000); // fallback for browsers that never fire afterprint
   };
   /** Small helpers for common building blocks. */
   MT.ui = {
