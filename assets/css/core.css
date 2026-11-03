@@ -199,7 +199,9 @@ li + li { margin-top: .25em; }
   .header-search { max-width: none; }
   .app-brand .suite-tag { display: none; }
 }
-@media (max-width: 520px) { .app-brand .name { display: none; } .app-main { padding: 14px 12px 64px; } }
+@media (max-width: 520px) { .app-brand .name { display: none; } .app-main { padding: 14px 12px 64px; } .app-header .suites-link { display: none; } }
+.app-sidebar .nav-suites { display: none; }
+@media (max-width: 520px) { .app-sidebar .nav-suites { display: flex; } }
 .nav-scrim { display: none; position: fixed; inset: var(--header-h) 0 0 0; background: rgba(0,0,0,.35); z-index: 55; }
 .app-footer { max-width: var(--content-max); margin: 40px auto 0; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: .82rem; }
 

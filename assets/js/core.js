@@ -853,7 +853,7 @@
       MT.h('div.header-search', MT.h('span.icon', { 'aria-hidden': 'true' }, '🔍'), els.search, els.results),
       cfg.quickExit ? MT.h('button.btn.btn-sm.quick-exit', { type: 'button', title: MT.t('Quickly leave this screen (for privacy on a shared phone)'), onclick: MT.app.quickExit }, '✕ ' + MT.t('Exit')) : null,
       installBtn,
-      MT.h('a.icon-btn', { href: root + 'index.html', title: MT.t('All suites'), 'aria-label': MT.t('All suites') }, '⌂'),
+      MT.h('a.icon-btn.suites-link', { href: root + 'index.html', title: MT.t('All suites'), 'aria-label': MT.t('All suites') }, '⌂'),
       MT.h('button.icon-btn', { type: 'button', title: MT.t('Settings'), 'aria-label': MT.t('Settings'), onclick: openSettings }, '⚙'));
     els.sidebar = MT.h('nav.app-sidebar', { 'aria-label': MT.t('Tools') });
     els.content = MT.h('div.content', { id: 'main', tabindex: '-1' });
@@ -871,7 +871,8 @@
     var nav = els.sidebar; if (!nav) return;
     MT.clear(nav);
     var q = parseHash();
-    nav.appendChild(MT.h('div.nav-group', MT.h('a.nav-link', { href: '#/', 'aria-current': !q.id ? 'page' : null }, MT.h('span.nav-ico', '🏠'), MT.t('Home'))));
+    nav.appendChild(MT.h('div.nav-group', MT.h('a.nav-link', { href: '#/', 'aria-current': !q.id ? 'page' : null }, MT.h('span.nav-ico', '🏠'), MT.t('Home')),
+      MT.h('a.nav-link.nav-suites', { href: (MT.app.config.root || '../') + 'index.html' }, MT.h('span.nav-ico', '⌂'), MT.t('All suites'))));
     groupTools().forEach(function (g) {
       nav.appendChild(MT.h('div.nav-group', MT.h('div.nav-group-title', g.title), g.tools.map(function (t) {
         return MT.h('a.nav-link', { href: '#/' + t.id, 'aria-current': q.id === t.id ? 'page' : null, onclick: function () { doc.body.classList.remove('nav-open'); } }, MT.h('span.nav-ico', { 'aria-hidden': 'true' }, t.icon || '•'), MT.t(t.title));

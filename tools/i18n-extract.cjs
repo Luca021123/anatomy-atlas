@@ -63,8 +63,26 @@ function loadDict(lang) {
   return dict;
 }
 
-const code = fromCode(), data = fromData();
-const all = new Map([...code, ...data]);
+function fromLib() {
+  // Lib files hold English rule/advice texts that tools pass through MT.t() at render time.
+  const out = new Map();
+  const dir = path.join(ROOT, 'health/lib');
+  if (!fs.existsSync(dir)) return out;
+  const re = /(['"])((?:\\.|(?!\1)[^\\\n]){4,})\1/g;
+  for (const f of fs.readdirSync(dir).filter(x => x.endsWith('.js'))) {
+    const src = fs.readFileSync(path.join(dir, f), 'utf8').replace(/^\s*\/\/.*$/gm, '');
+    let m;
+    while ((m = re.exec(src))) {
+      const s = unescapeJs(m[2], m[1]);
+      // prose heuristic: has a space, starts with a letter/digit/emoji-free char, not code-like
+      if (/\s/.test(s) && /[A-Za-z]{3}/.test(s) && !/^(use strict|object|function|undefined)$/.test(s) && !/[{}();=]|=>|\bvar\b|\breturn\b/.test(s) && !/^https?:/.test(s)) out.set(s, 'health/lib/' + f);
+    }
+  }
+  return out;
+}
+
+const code = fromCode(), data = fromData(), lib = fromLib();
+const all = new Map([...lib, ...data, ...code]);
 const args = process.argv.slice(2);
 if (args[0] === '--json') {
   fs.writeFileSync(args[1], JSON.stringify([...all.keys()].sort(), null, 1));
@@ -78,6 +96,6 @@ if (args[0] === '--json') {
   const byFile = {};
   for (const [, f] of all) byFile[f] = (byFile[f] || 0) + 1;
   const words = [...all.keys()].reduce((n, s) => n + s.split(/\s+/).length, 0);
-  console.log(`${all.size} unique strings (${words} words): ${code.size} from code, ${data.size} from data files`);
+  console.log(`${all.size} unique strings (${words} words): ${code.size} from code, ${data.size} from data files, ${lib.size} from lib files`);
   Object.entries(byFile).sort().forEach(([f, n]) => console.log(`  ${f}: ${n}`));
 }
