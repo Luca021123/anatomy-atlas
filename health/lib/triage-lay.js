@@ -112,7 +112,7 @@
           signs: [
             { id: 'ad-u-fever', icon: '🌡️', text: 'A fever that has lasted more than 3 days' },
             { id: 'ad-u-malaria', icon: '🦟', text: 'Fever, and they live in or have visited an area with malaria' },
-            { id: 'ad-u-breath', icon: '🫁', text: 'Breathing is faster or harder than usual, but they can still talk', link: 'breath:adult' },
+            { id: 'ad-u-breath', icon: '💨', text: 'Breathing is faster or harder than usual, but they can still talk', link: 'breath:adult' },
             { id: 'ad-u-gut', icon: '🤢', text: 'Vomiting or diarrhoea for more than 2 days, or blood in the poo' },
             { id: 'ad-u-belly', icon: '😣', text: 'Bad pain in the belly that is not going away' },
             { id: 'ad-u-urine', icon: '🚽', text: 'Pain when passing urine, with fever or pain in the back or side' },

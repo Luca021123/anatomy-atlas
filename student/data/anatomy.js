@@ -399,7 +399,7 @@
       'cord-post>upper-subscapular', 'cord-post>thoracodorsal', 'cord-post>lower-subscapular'
     ],
     layouts: {
-      wide: { vb: [700, 612], font: 13, pos: {
+      wide: { vb: [700, 600], font: 14, pos: {
         'dorsal-scapular': [63, 60, 112, 28], 'long-thoracic': [63, 168, 112, 28],
         c5: [170, 60, 44, 30], c6: [170, 104, 44, 30], c7: [170, 232, 44, 30], c8: [170, 372, 44, 30], t1: [170, 416, 44, 30],
         suprascapular: [205, 20, 96, 26], 'n-subclavius': [334, 20, 126, 26],
@@ -409,18 +409,18 @@
         'upper-subscapular': [628, 52, 132, 30], thoracodorsal: [628, 90, 132, 30], 'lower-subscapular': [628, 128, 132, 30], axillary: [628, 170, 132, 34], radial: [628, 214, 132, 34],
         'lateral-pectoral': [628, 272, 132, 30], musculocutaneous: [628, 314, 132, 34], median: [628, 362, 132, 36],
         'medial-pectoral': [628, 418, 132, 30], 'mcn-arm': [628, 458, 132, 30], 'mcn-forearm': [628, 500, 132, 38], ulnar: [628, 548, 132, 34]
-      }, heads: [[170, 'Roots'], [266, 'Trunks'], [366, 'Divisions'], [470, 'Cords'], [628, 'Branches']], headY: 598 },
-      narrow: { vb: [380, 640], font: 11, pos: {
+      }, heads: [[170, 'Roots'], [266, 'Trunks'], [366, 'Divisions'], [470, 'Cords'], [628, 'Branches']], headY: 590 },
+      narrow: { vb: [380, 612], font: 11.5, pos: {
         'long-thoracic': [58, 14, 108, 22], 'dorsal-scapular': [86, 44, 104, 22],
         suprascapular: [206, 14, 94, 22], 'n-subclavius': [316, 14, 112, 22],
         c5: [47, 112, 32, 26], c6: [47, 148, 32, 26], c7: [47, 262, 32, 26], c8: [47, 388, 32, 26], t1: [47, 424, 32, 26],
         'trunk-upper': [106, 130, 46, 34], 'trunk-middle': [106, 262, 46, 34], 'trunk-lower': [106, 406, 46, 34],
         'div-up-post': [160, 112, 34, 24], 'div-up-ant': [160, 148, 34, 24], 'div-mid-post': [160, 240, 34, 24], 'div-mid-ant': [160, 276, 34, 24], 'div-low-post': [160, 380, 34, 24], 'div-low-ant': [160, 432, 34, 24],
-        'cord-post': [213, 170, 50, 34], 'cord-lat': [213, 340, 50, 34], 'cord-med': [213, 508, 50, 34],
+        'cord-post': [211, 170, 60, 36], 'cord-lat': [211, 340, 60, 36], 'cord-med': [211, 508, 60, 36],
         'upper-subscapular': [316, 100, 114, 28], thoracodorsal: [316, 134, 114, 28], 'lower-subscapular': [316, 168, 114, 28], axillary: [316, 206, 114, 30], radial: [316, 246, 114, 30],
         'lateral-pectoral': [316, 300, 114, 28], musculocutaneous: [316, 338, 114, 30], median: [316, 382, 114, 32],
         'medial-pectoral': [316, 434, 114, 28], 'mcn-arm': [316, 470, 114, 28], 'mcn-forearm': [316, 510, 114, 34], ulnar: [316, 554, 114, 30]
-      }, lanes: { 'c5>long-thoracic': 10, 'c6>long-thoracic': 10, 'c7>long-thoracic': 10, 'c5>dorsal-scapular': 20 }, heads: [[47, 'Roots'], [106, 'Trunks'], [160, 'Div.'], [213, 'Cords'], [316, 'Branches']], headY: 614 }
+      }, lanes: { 'c5>long-thoracic': 10, 'c6>long-thoracic': 10, 'c7>long-thoracic': 10, 'c5>dorsal-scapular': 20 }, heads: [[47, 'Roots'], [106, 'Trunks'], [160, 'Div.'], [213, 'Cords'], [316, 'Branches']], headY: 602 }
     },
     lesions: [
       { id: 'erb', name: 'Erb–Duchenne palsy (upper trunk, C5–C6)', short: 'Erb–Duchenne', sites: ['trunk-upper'], affected: ['c5', 'c6', 'suprascapular', 'n-subclavius', 'div-up-ant', 'div-up-post', 'cord-lat', 'musculocutaneous', 'axillary'], partial: ['radial', 'cord-post'],

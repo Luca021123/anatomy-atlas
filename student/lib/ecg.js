@@ -247,7 +247,9 @@
     escapeRate: 42,
     noise: 0.25,       // 0–1 artefact level (baseline wander + muscle noise)
     ectopicEvery: 0,   // bigeminy (2) etc.
-    fibAmp: 0.06       // AF f-wave amplitude (mV)
+    fibAmp: 0.06,      // AF f-wave amplitude (mV)
+    tVec: null,        // explicit T-wave vector (mV), overrides the T axis
+    qVec: null         // early-QRS force lost to infarction (mV), e.g. [0, 0, -0.2] removes anterior r waves (QS V1-V3)
   };
 
   /* ====================================================================== rhythm engine */
@@ -451,12 +453,14 @@
     var k = p.qrsAmp;
     comps.forEach(function (c) { c.v = vscale(c.v, k); });
     var tv;
-    if (m.t) tv = rotFrontal(m.t, rot);
+    if (p.tVec && (name === 'normal' || name === p.morph)) tv = p.tVec.slice();
+    else if (m.t) tv = rotFrontal(m.t, rot);
     else {
       var ta = p.tAxis != null ? p.tAxis : clamp(p.axis * 0.5 + 15, -10, 75);
       tv = [m.tFront * Math.cos(ta * DEG), m.tFront * Math.sin(ta * DEG), m.tZ];
     }
-    tv = vscale(tv, p.tAmp * (m.t ? Math.max(0.6, Math.min(1.6, k)) : 1));
+    tv = vscale(tv, p.tAmp * (m.t && !p.tVec ? Math.max(0.6, Math.min(1.6, k)) : 1));
+    if (p.qVec && m.axis) comps.push({ f: 0.24, w: 0.085, v: p.qVec.slice() });
     var st2 = m.st ? vscale(rotFrontal(m.st, rot), Math.max(0.6, Math.min(1.6, k))) : null;
     return { comps: comps, t: tv, st2: st2, rot: rot, mean: meanVector(comps) };
   }
@@ -486,7 +490,7 @@
       return;
     }
     // Pre-excitation (delta wave): slow ventricular activation through the accessory pathway before the normal QRS.
-    if (b.delta > 0) addGauss(D, fs, on + b.delta * 0.95, b.delta * 0.5, b.delta * 0.42, vscale(p.deltaVec, p.qrsAmp));
+    if (b.delta > 0) addGauss(D, fs, on + b.delta * 1.05, b.delta * 0.47, b.delta * 0.5, vscale(p.deltaVec, p.qrsAmp));
     var qrsStart = on + (b.delta || 0), qd = dur - (b.delta || 0);
     for (var i = 0; i < comps.length; i++) {
       var cc = comps[i], v = cc.v;
@@ -604,6 +608,8 @@
     p.uAmp = clamp(isNum(p.uAmp) ? p.uAmp : 0.04, 0, 1);
     p.noise = clamp(isNum(p.noise) ? p.noise : 0.25, 0, 1);
     ['st', 'prShift', 'deltaVec'].forEach(function (key) { if (!Array.isArray(p[key]) || p[key].length !== 3) p[key] = DEFAULTS[key].slice(); p[key] = p[key].map(Number); });
+    ['tVec', 'qVec'].forEach(function (key) { p[key] = Array.isArray(p[key]) && p[key].length === 3 ? p[key].map(Number) : null; });
+    p.delta = clamp(Number(p.delta) || 0, 0, 90);
     return p;
   }
 
@@ -637,8 +643,8 @@
       var vtype = b.morph === 'pvc' || b.morph === 'vt' || b.morph === 'paced' || b.morph === 'escape' || b.morph === 'tdp';
       b.dur = vtype ? (b.morph === 'tdp' ? 0.13 : b.morph === 'pvc' ? 0.145 : b.morph === 'paced' ? 0.155 : 0.16) : p.qrs / 1000;
       if (b.morph === 'vt' && p.rhythm === 'vt') b.dur = clamp(p.qrs, 120, 240) / 1000;
-      // A conducted beat with pre-excitation starts earlier (short PR) and ends at the usual time (wide QRS).
-      if (p.delta > 0 && !vtype && b.kind !== 'J') { b.delta = p.delta / 1000; b.on -= b.delta; b.dur += b.delta; }
+      // Pre-excitation: the QRS starts with the delta wave (short PR); params.qrs is the total QRS including the delta.
+      if (p.delta > 0 && !vtype && b.kind !== 'J') b.delta = Math.min(p.delta / 1000, b.dur - 0.05);
       b.qt = vtype ? Math.min(qtFor({ qtc: 400 }, b.rrPrev), 0.42) : qtFor(p, b.rrPrev);
       if (b.morph === 'pvc' || b.morph === 'vt') b.qt = clamp(qtFor({ qtc: 420 }, Math.max(b.rrPrev, 0.4)), 0.26, 0.44);
     });
@@ -719,7 +725,8 @@
     // Dominant-beat intervals (median over the most common conducted/escape beat type).
     var main = beats.filter(function (b) { return b.kind === 'N' || b.kind === 'J' || b.kind === 'E' || b.kind === 'P' || b.kind === 'V'; });
     var kinds = {}; main.forEach(function (b) { kinds[b.kind] = (kinds[b.kind] || 0) + 1; });
-    var domKind = Object.keys(kinds).sort(function (a, b) { return kinds[b] - kinds[a]; })[0];
+    var PRI = { N: 0, J: 1, E: 2, P: 3, V: 4 };
+    var domKind = Object.keys(kinds).sort(function (a, b) { return (kinds[b] - kinds[a]) || (PRI[a] - PRI[b]); })[0];
     var dom = main.filter(function (b) { return b.kind === domKind; });
     var prs = dom.map(function (b) { return b.pr; }).filter(isNum);
     var rrMed = rr.length ? median(rr) : null;
@@ -876,8 +883,9 @@
     return out;
   }
   function domKindOf(ann) {
-    var c = {}; ann.beats.forEach(function (b) { c[b.kind] = (c[b.kind] || 0) + 1; });
-    return Object.keys(c).sort(function (a, b) { return c[b] - c[a]; })[0];
+    var c = {}, PRI = { N: 0, J: 1, E: 2, P: 3, S: 4, V: 5 };
+    ann.beats.forEach(function (b) { c[b.kind] = (c[b.kind] || 0) + 1; });
+    return Object.keys(c).sort(function (a, b) { return (c[b] - c[a]) || ((PRI[a] || 9) - (PRI[b] || 9)); })[0];
   }
 
   /* ====================================================================== arithmetic */
@@ -942,12 +950,375 @@
   }
 
   /* ====================================================================== catalogue */
-  var DIAGNOSES = [];
+  /** Reference list (cited in the UI next to each diagnosis). */
+  var REFS = {
+    kligfield2007: 'Kligfield P et al. AHA/ACCF/HRS recommendations for the standardization and interpretation of the ECG, Part I: the ECG and its technology. Circulation 2007;115:1306-1324.',
+    mason2007: 'Mason JW et al. AHA/ACCF/HRS recommendations, Part II: electrocardiography diagnostic statement list. Circulation 2007;115:1325-1332.',
+    surawicz2009: 'Surawicz B et al. AHA/ACCF/HRS recommendations, Part III: intraventricular conduction disturbances. Circulation 2009;119:e235-e240.',
+    rautaharju2009: 'Rautaharju PM et al. AHA/ACCF/HRS recommendations, Part IV: the ST segment, T and U waves, and the QT interval. Circulation 2009;119:e241-e250.',
+    hancock2009: 'Hancock EW et al. AHA/ACCF/HRS recommendations, Part V: ECG changes associated with cardiac chamber hypertrophy. Circulation 2009;119:e251-e261.',
+    wagner2009: 'Wagner GS et al. AHA/ACCF/HRS recommendations, Part VI: acute ischemia/infarction. Circulation 2009;119:e262-e270.',
+    udmi2018: 'Thygesen K et al. Fourth Universal Definition of Myocardial Infarction (2018). Circulation 2018;138:e618-e651.',
+    esc2023acs: 'Byrne RA et al. 2023 ESC Guidelines for the management of acute coronary syndromes. Eur Heart J 2023;44:3720-3826.',
+    esc2024af: 'Van Gelder IC et al. 2024 ESC Guidelines for the management of atrial fibrillation. Eur Heart J 2024;45:3314-3414.',
+    esc2019svt: 'Brugada J et al. 2019 ESC Guidelines for the management of patients with supraventricular tachycardia. Eur Heart J 2020;41:655-720.',
+    acc2018brady: 'Kusumoto FM et al. 2018 ACC/AHA/HRS guideline on the evaluation and management of patients with bradycardia and cardiac conduction delay. Circulation 2019;140:e382-e482.',
+    esc2021pacing: 'Glikson M et al. 2021 ESC Guidelines on cardiac pacing and cardiac resynchronization therapy. Eur Heart J 2021;42:3427-3520.',
+    esc2022va: 'Zeppenfeld K et al. 2022 ESC Guidelines for the management of patients with ventricular arrhythmias and the prevention of sudden cardiac death. Eur Heart J 2022;43:3997-4126.',
+    erc2021: 'Soar J et al. European Resuscitation Council Guidelines 2021: adult advanced life support. Resuscitation 2021;161:115-151.',
+    esc2015peri: 'Adler Y et al. 2015 ESC Guidelines for the diagnosis and management of pericardial diseases. Eur Heart J 2015;36:2921-2964.',
+    spodick2003: 'Spodick DH. Acute pericarditis: current concepts and practice. JAMA 2003;289:1150-1153.',
+    ginzton1982: 'Ginzton LE, Laks MM. The differential diagnosis of acute pericarditis from the normal variant: new electrocardiographic criteria. Circulation 1982;65:1004-1009.',
+    brugada1991: 'Brugada P et al. A new approach to the differential diagnosis of a regular tachycardia with a wide QRS complex. Circulation 1991;83:1649-1659.',
+    vereckei2008: 'Vereckei A et al. New algorithm using only lead aVR for differential diagnosis of wide QRS complex tachycardia. Heart Rhythm 2008;5:89-98.',
+    drew2010: 'Drew BJ et al. Prevention of torsade de pointes in hospital settings: AHA/ACCF scientific statement. Circulation 2010;121:1047-1060.',
+    sgarbossa1996: 'Sgarbossa EB et al. ECG diagnosis of evolving acute myocardial infarction in the presence of left bundle-branch block. N Engl J Med 1996;334:481-487.',
+    smith2012: 'Smith SW et al. Diagnosis of STEMI in the presence of LBBB with the ST-elevation to S-wave ratio in a modified Sgarbossa rule. Ann Emerg Med 2012;60:766-776.',
+    sokolow1949: 'Sokolow M, Lyon TP. The ventricular complex in left ventricular hypertrophy as obtained by unipolar precordial and limb leads. Am Heart J 1949;37:161-186.',
+    casale1985: 'Casale PN et al. Electrocardiographic detection of left ventricular hypertrophy: development and prospective validation of improved criteria. J Am Coll Cardiol 1985;6:572-580.',
+    molloy1992: 'Molloy TJ et al. Electrocardiographic detection of left ventricular hypertrophy by the simple QRS voltage-duration product. J Am Coll Cardiol 1992;20:1180-1186.',
+    diercks2004: 'Diercks DB et al. Electrocardiographic manifestations: electrolyte abnormalities. J Emerg Med 2004;27:153-160.',
+    montague2008: 'Montague BT, Ouellette JR, Buller GK. Retrospective review of the frequency of ECG changes in hyperkalemia. Clin J Am Soc Nephrol 2008;3:324-330.',
+    ukka2020: 'UK Kidney Association (Renal Association). Clinical practice guideline: treatment of acute hyperkalaemia in adults (2020).',
+    priori2013: 'Priori SG et al. HRS/EHRA/APHRS expert consensus statement on the diagnosis and management of patients with inherited primary arrhythmia syndromes. Heart Rhythm 2013;10:1932-1963.',
+    madias2008: 'Madias JE. Low QRS voltage and its causes. J Electrocardiol 2008;41:498-500.',
+    bazett1920: 'Bazett HC. An analysis of the time-relations of electrocardiograms. Heart 1920;7:353-370.',
+    fridericia1920: 'Fridericia LS. Die Systolendauer im Elektrokardiogramm bei normalen Menschen und bei Herzkranken. Acta Med Scand 1920;53:469-486.',
+    sagie1992: 'Sagie A et al. An improved method for adjusting the QT interval for heart rate (the Framingham Heart Study). Am J Cardiol 1992;70:797-801.',
+    hodges1983: 'Hodges M et al. Bazett\'s QT correction reviewed: evidence that a linear QT correction for heart rate is better. J Am Coll Cardiol 1983;1:694 (abstract).',
+    mcsharry2003: 'McSharry PE, Clifford GD, Tarassenko L, Smith LA. A dynamical model for generating synthetic electrocardiogram signals. IEEE Trans Biomed Eng 2003;50:289-294.',
+    sameni2007: 'Sameni R, Clifford GD, Jutten C, Shamsollahi MB. Multichannel ECG and noise modeling: application to maternal and fetal ECG signals. EURASIP J Adv Signal Process 2007:43407.',
+    dower1980: 'Dower GE, Machado HB, Osborne JA. On deriving the electrocardiogram from vectorcardiographic leads. Clin Cardiol 1980;3:87-95.'
+  };
+
+  /** Lead groups used for territories and highlighting. */
+  var TERRITORIES = {
+    inferior: { leads: ['II', 'III', 'aVF'], artery: 'Right coronary artery (~80%) or left circumflex', reciprocal: ['aVL', 'I'] },
+    lateral: { leads: ['I', 'aVL', 'V5', 'V6'], artery: 'Left circumflex or diagonal branch of the LAD', reciprocal: ['III', 'aVF'] },
+    septal: { leads: ['V1', 'V2'], artery: 'Septal branches of the LAD', reciprocal: [] },
+    anterior: { leads: ['V1', 'V2', 'V3', 'V4'], artery: 'Left anterior descending artery', reciprocal: ['III', 'aVF'] },
+    posterior: { leads: ['V7', 'V8', 'V9'], artery: 'Left circumflex or right coronary artery (posterior descending)', reciprocal: ['V1', 'V2', 'V3'] },
+    rightVentricle: { leads: ['V4R'], artery: 'Proximal right coronary artery', reciprocal: [] }
+  };
+
+  var GROUPS = [
+    { id: 'sinus', title: 'Sinus rhythms' },
+    { id: 'svt', title: 'Atrial & junctional' },
+    { id: 'ventricular', title: 'Ventricular rhythms' },
+    { id: 'block', title: 'AV block' },
+    { id: 'conduction', title: 'Conduction & hypertrophy' },
+    { id: 'ischaemia', title: 'Ischaemia & infarction' },
+    { id: 'metabolic', title: 'Electrolytes, QT & other' }
+  ];
+
+  // tier: 1 beginner, 2 intermediate, 3 advanced. vary: quiz randomisation ranges (uniform). key: the one-line discriminator.
+  var DIAGNOSES = [
+    { id: 'normal', group: 'sinus', tier: 1, name: 'Normal sinus rhythm', short: 'Normal sinus rhythm',
+      summary: 'Sinus P waves at 60–100/min, each followed by a narrow QRS with a constant, normal PR interval; normal axis, intervals and repolarisation.',
+      key: 'regular sinus P waves at 60–100/min, each conducted with a normal PR, and normal intervals and morphology',
+      params: { hr: 72, axis: 60 }, vary: { hr: [62, 94], axis: [15, 85] },
+      features: ['Rate 60–100/min and regular.', 'P waves upright in I and II and inverted in aVR — one before every QRS, constant PR 120–200 ms.', 'Narrow QRS (< 120 ms), normal axis, R-wave progression with the transition around V3–V4; small septal q waves in I, aVL, V5–V6.', 'T waves upright in I, II and V2–V6, inverted in aVR; QTc within the reference range.'],
+      criteria: ['Sinus P-wave axis 0° to +75° (upright in I and II).', 'Rate 60–100/min.', 'PR 120–200 ms; QRS < 120 ms; QRS axis −30° to +90°.', 'QTc < 450 ms (men) / < 460 ms (women).'],
+      pearls: ['Interpret in the clinical context and compare with a previous ECG whenever possible.', 'A "normal" ECG does not exclude acute coronary syndrome — repeat it if symptoms persist.'],
+      refs: ['kligfield2007', 'mason2007', 'rautaharju2009'], confusers: ['sinus-arrhythmia', 'sinus-brady', 'sinus-tachy', 'avb1'] },
+    { id: 'sinus-brady', group: 'sinus', tier: 1, name: 'Sinus bradycardia', short: 'Sinus bradycardia',
+      summary: 'Sinus rhythm with a rate below 60/min; every P wave is conducted with a constant PR.',
+      key: 'normal sinus P waves, each conducted, at a rate below 60/min',
+      params: { hr: 46, qtc: 415 }, vary: { hr: [38, 54] },
+      features: ['Regular rhythm, rate < 60/min (here about 45/min).', 'Normal sinus P waves, each followed by a QRS with a constant PR.', 'Normal QRS, ST and T; long TP segment.'],
+      criteria: ['Sinus rhythm at < 60/min (traditional ECG definition; the 2018 ACC/AHA/HRS bradycardia guideline uses < 50/min).'],
+      pearls: ['Often physiological (athletes, sleep).', 'Look for causes: β-blockers, calcium-channel blockers, digoxin, hypothyroidism, hypothermia, raised intracranial pressure, inferior MI, sinus node dysfunction.', 'Treat the patient, not the number — symptoms and haemodynamics decide.'],
+      refs: ['acc2018brady', 'mason2007'], confusers: ['junctional', 'avb1', 'avb3', 'normal'] },
+    { id: 'sinus-tachy', group: 'sinus', tier: 1, name: 'Sinus tachycardia', short: 'Sinus tachycardia',
+      summary: 'Sinus rhythm faster than 100/min with a normal P wave before every QRS.',
+      key: 'normal sinus P waves before every QRS at more than 100/min, with gradual rate changes',
+      params: { hr: 122, pr: 140, qtc: 420 }, vary: { hr: [106, 145] },
+      features: ['Regular rhythm, rate > 100/min (here about 120/min).', 'Upright P waves in I and II before every QRS (the P may start to merge with the preceding T wave).', 'Short, constant PR; narrow QRS.'],
+      criteria: ['Sinus rhythm at > 100/min.'],
+      pearls: ['Almost always a response to something: pain, fever, hypovolaemia, sepsis, anaemia, hypoxia, pulmonary embolism, thyrotoxicosis, anxiety, stimulants.', 'Treat the cause. A regular narrow tachycardia at exactly ~150/min should make you look for flutter waves.'],
+      refs: ['mason2007', 'esc2019svt'], confusers: ['svt', 'flutter-21', 'af', 'normal'] },
+    { id: 'sinus-arrhythmia', group: 'sinus', tier: 3, name: 'Sinus arrhythmia', short: 'Sinus arrhythmia',
+      summary: 'Sinus rhythm whose rate varies phasically with breathing; P-wave shape and PR interval stay constant.',
+      key: 'identical sinus P waves and constant PR with a cyclical (respiratory) variation of the P–P/R–R intervals',
+      params: { rhythm: 'sinus-arrhythmia', hr: 68 }, vary: { hr: [58, 80] },
+      features: ['Irregular, but regularly irregular: R–R intervals shorten and lengthen in cycles of a few seconds.', 'Every QRS preceded by an identical sinus P wave with a constant PR.', 'Narrow QRS, normal morphology.'],
+      criteria: ['Sinus P waves with P–P variation of more than 0.12 s (some texts use 0.16 s), phasic with respiration.'],
+      pearls: ['Respiratory sinus arrhythmia is normal, especially in children and young adults (vagal tone).', 'Non-respiratory sinus arrhythmia in older people can reflect sinus node disease.'],
+      refs: ['mason2007'], confusers: ['af', 'pac', 'normal', 'avb2-mobitz1'] },
+    { id: 'af', group: 'svt', tier: 1, name: 'Atrial fibrillation', short: 'Atrial fibrillation',
+      summary: 'Chaotic atrial activity without organised P waves and an irregularly irregular ventricular response.',
+      key: 'irregularly irregular R–R intervals with no P waves (fibrillatory baseline)',
+      params: { rhythm: 'af', hr: 105, fibAmp: 0.06 }, vary: { hr: [72, 140], fibAmp: [0.03, 0.08] },
+      features: ['Irregularly irregular R–R intervals — no pattern at all.', 'No P waves; a fine or coarse fibrillatory (f-wave) baseline, usually best seen in V1 and the inferior leads.', 'Narrow QRS (unless there is bundle branch block or aberrancy); ventricular rate here about 100–110/min.'],
+      criteria: ['Irregularly irregular R–R intervals and no distinct repeating P waves on a 12-lead ECG, or ≥ 30 s on a single-lead recording (ESC 2024).'],
+      pearls: ['Assess stroke risk (CHA₂DS₂-VA) and anticoagulate unless contraindicated; control rate or rhythm; look for triggers such as sepsis, thyrotoxicosis, alcohol and valve disease (ESC 2024).', 'Haemodynamically unstable AF needs urgent electrical cardioversion.', 'Use the 6-second method (or count all QRS complexes in the 10-s strip × 6) to estimate the rate of an irregular rhythm.'],
+      refs: ['esc2024af', 'mason2007'], confusers: ['flutter-41', 'sinus-arrhythmia', 'pac', 'avb2-mobitz1'] },
+    { id: 'flutter-41', group: 'svt', tier: 1, name: 'Atrial flutter with 4:1 block', short: 'Atrial flutter (4:1)',
+      summary: 'Typical atrial flutter: a "sawtooth" of flutter waves at about 300/min with every fourth wave conducted (ventricular rate ~75/min).',
+      key: 'regular sawtooth flutter waves at ~300/min with a fixed conduction ratio',
+      params: { rhythm: 'flutter', conduction: 4, atrialRate: 300, hr: 75 }, vary: { atrialRate: [280, 320] },
+      features: ['Continuous sawtooth flutter (F) waves with no isoelectric baseline, atrial rate about 300/min (one F wave per large square).', 'F waves negative in II, III and aVF and positive in V1 — typical counter-clockwise cavotricuspid-isthmus flutter.', 'Regular ventricular response with 4 F waves per QRS (about 75/min); narrow QRS.'],
+      criteria: ['Uniform, continuous atrial activity at 250–350/min with a fixed (or variable) AV conduction ratio.'],
+      pearls: ['Anticoagulate as for AF.', 'Cavotricuspid-isthmus ablation is highly effective for typical flutter (ESC 2019).', 'Turn the ECG upside down or look at II, III and aVF to see the sawtooth.'],
+      refs: ['esc2019svt', 'mason2007'], confusers: ['af', 'flutter-21', 'sinus-brady', 'avb3'] },
+    { id: 'flutter-21', group: 'svt', tier: 2, name: 'Atrial flutter with 2:1 block', short: 'Atrial flutter (2:1)',
+      summary: 'Atrial flutter at about 300/min with alternate F waves conducted: a regular narrow-complex tachycardia at ~150/min.',
+      key: 'a regular narrow tachycardia at ~150/min with two flutter waves per QRS (one hidden in the ST/T)',
+      params: { rhythm: 'flutter', conduction: 2, atrialRate: 300, hr: 150 }, vary: { atrialRate: [280, 316] },
+      features: ['Regular narrow-complex tachycardia at about 150/min.', 'Two F waves per QRS: one before the QRS and one buried at the end of the QRS / in the ST–T — look at II, III, aVF and V1.', 'Sawtooth negative F waves in the inferior leads, positive in V1.'],
+      criteria: ['Atrial activity at 250–350/min with 2:1 AV conduction (ventricular rate ≈ half the atrial rate).'],
+      pearls: ['A regular narrow-complex tachycardia at ~150/min is flutter with 2:1 block until proven otherwise.', 'Vagal manoeuvres or adenosine transiently increase the block and unmask the F waves (diagnostic, rarely curative).'],
+      refs: ['esc2019svt', 'mason2007'], confusers: ['svt', 'sinus-tachy', 'af', 'flutter-41'] },
+    { id: 'svt', group: 'svt', tier: 2, name: 'AV nodal re-entrant tachycardia (SVT)', short: 'AVNRT (SVT)',
+      summary: 'A regular narrow-complex re-entrant tachycardia (~180/min) with P waves hidden in, or just after, the QRS.',
+      key: 'a regular narrow tachycardia (~150–250/min) with no visible P waves before the QRS (pseudo-r′ in V1)',
+      params: { rhythm: 'svt', hr: 182, qtc: 400, pr: 140 }, vary: { hr: [160, 215] },
+      features: ['Regular narrow-complex tachycardia, here about 180/min.', 'No P waves before the QRS: retrograde P waves are buried in or appear at the very end of the QRS — "pseudo-r′" in V1 and "pseudo-S" in II, III and aVF.', 'Rate-related ST depression may be present and does not by itself mean ischaemia.'],
+      criteria: ['Regular narrow-QRS tachycardia (usually 140–280/min) with a very short RP interval (< 70 ms) in typical slow–fast AVNRT (ESC 2019).'],
+      pearls: ['Haemodynamically unstable → synchronised DC cardioversion.', 'Stable → modified Valsalva manoeuvre, then adenosine (ESC 2019).', 'Catheter ablation of the slow pathway is curative in most patients.'],
+      refs: ['esc2019svt'], confusers: ['sinus-tachy', 'flutter-21', 'af', 'vt'] },
+    { id: 'junctional', group: 'svt', tier: 2, name: 'Junctional rhythm', short: 'Junctional rhythm',
+      summary: 'A regular, narrow-complex escape rhythm from the AV junction at 40–60/min with absent or retrograde P waves.',
+      key: 'a regular narrow rhythm at 40–60/min with inverted (retrograde) P waves in II/III/aVF and a short PR',
+      params: { rhythm: 'junctional', hr: 48 }, vary: { hr: [40, 58] },
+      features: ['Regular rhythm, rate 40–60/min (here about 48/min).', 'Retrograde P waves: inverted in II, III and aVF, upright in aVR, with a short PR (< 120 ms) — they can also be hidden in or follow the QRS.', 'Narrow QRS with normal morphology.'],
+      criteria: ['Junctional escape rhythm 40–60/min; accelerated junctional rhythm 60–100/min; junctional tachycardia > 100/min.'],
+      pearls: ['Usually an escape rhythm when the sinus node fails: drugs (β-blockers, calcium-channel blockers, digoxin), sinus node disease, inferior MI, after cardiac surgery.'],
+      refs: ['acc2018brady', 'mason2007'], confusers: ['sinus-brady', 'avb3', 'avb1', 'avb2-mobitz2'] },
+    { id: 'pac', group: 'svt', tier: 2, name: 'Premature atrial complexes', short: 'Premature atrial complexes',
+      summary: 'Sinus rhythm interrupted by early beats that start with an abnormal P wave and conduct with a normal QRS.',
+      key: 'early beats preceded by a differently shaped P wave, with a narrow QRS and a non-compensatory pause',
+      params: { rhythm: 'pac', hr: 76 }, vary: { hr: [64, 92] },
+      features: ['Underlying sinus rhythm.', 'Premature beats preceded by a P wave of different shape/axis (look closely in the T wave of the previous beat).', 'Narrow QRS like the sinus beats; the following pause is less than compensatory because the sinus node is reset.'],
+      criteria: ['Premature P wave of non-sinus morphology, usually followed by a QRS (it may be blocked or conducted with aberrancy).'],
+      pearls: ['Common and usually benign; triggers include caffeine, alcohol, stress, structural heart disease.', 'Frequent PACs are associated with incident atrial fibrillation.'],
+      refs: ['mason2007', 'esc2019svt'], confusers: ['pvc', 'sinus-arrhythmia', 'af', 'avb2-mobitz2'] },
+    { id: 'pvc', group: 'ventricular', tier: 1, name: 'Premature ventricular complexes', short: 'Premature ventricular complexes',
+      summary: 'Sinus rhythm with early, broad, bizarre QRS complexes that are not preceded by a P wave.',
+      key: 'early broad bizarre QRS complexes without a preceding P wave, discordant T waves and a compensatory pause',
+      params: { rhythm: 'pvc', hr: 76 }, vary: { hr: [64, 90] },
+      features: ['Underlying sinus rhythm.', 'Premature, broad (≥ 120 ms) QRS complexes with no preceding P wave; the ST segment and T wave point opposite to the main QRS deflection.', 'Fully compensatory pause: the sinus P wave falling inside the PVC is not conducted, so the next sinus beat comes on time.', 'Here LBBB-like with an inferior axis — the classic right-ventricular outflow-tract PVC.'],
+      criteria: ['Premature QRS ≥ 120 ms, not preceded by a premature P wave, with secondary ST–T changes.'],
+      pearls: ['Check potassium, magnesium, ischaemia, drugs and structural heart disease.', 'A high PVC burden (> 10–20%) can cause a reversible cardiomyopathy (ESC 2022).'],
+      refs: ['esc2022va', 'mason2007'], confusers: ['pac', 'bigeminy', 'vt', 'af'] },
+    { id: 'bigeminy', group: 'ventricular', tier: 2, name: 'Ventricular bigeminy', short: 'Ventricular bigeminy',
+      summary: 'Every sinus beat is followed by a premature ventricular complex at a fixed coupling interval.',
+      key: 'alternating sinus beats and PVCs (N-V-N-V) with a fixed coupling interval',
+      params: { rhythm: 'pvc', hr: 78, ectopicEvery: 1 }, vary: { hr: [66, 92] },
+      features: ['Alternating sinus beat and broad PVC (N–V–N–V…), giving grouped beating.', 'Fixed coupling interval between each sinus beat and its PVC; compensatory pause after each PVC.', 'The sinus P wave after each PVC is hidden in its ST–T and not conducted.'],
+      criteria: ['A PVC after every sinus beat (trigeminy: after every second beat).'],
+      pearls: ['The pulse may feel slow or irregular because PVCs can be haemodynamically ineffective.', 'Think of digoxin toxicity, ischaemia, hypokalaemia and hypomagnesaemia.'],
+      refs: ['esc2022va', 'mason2007'], confusers: ['pvc', 'pac', 'vt', 'af'] },
+    { id: 'vt', group: 'ventricular', tier: 1, name: 'Monomorphic ventricular tachycardia', short: 'Ventricular tachycardia',
+      summary: 'A regular broad-complex tachycardia of ventricular origin with uniform QRS complexes and AV dissociation.',
+      key: 'a regular broad-complex tachycardia with uniform QRS complexes, AV dissociation and an extreme axis',
+      params: { rhythm: 'vt', hr: 168, qrs: 160, atrialRate: 80 }, vary: { hr: [140, 200], atrialRate: [70, 95] },
+      features: ['Regular broad-complex tachycardia (QRS ~160 ms) at about 170/min, every complex alike (monomorphic).', 'AV dissociation: P waves at a slower, independent rate occasionally deform the QRS/ST — look at the rhythm strip.', 'Extreme ("north-west") axis with a dominant R wave in aVR; RBBB-like V1 with a monophasic R; deep S/QS in V6.', 'No RS complex with a normal-looking short RS interval in the precordial leads.'],
+      criteria: ['≥ 3 consecutive ventricular beats at > 100/min; sustained if ≥ 30 s or requiring termination (ESC 2022).', 'Favouring VT over SVT with aberrancy: AV dissociation, capture/fusion beats, extreme axis, QRS > 160 ms, absent RS in V1–V6 or RS > 100 ms, initial R in aVR (Brugada 1991; Vereckei 2008).'],
+      pearls: ['Treat any regular broad-complex tachycardia as VT until proven otherwise — especially with known heart disease.', 'No pulse → advanced life support with defibrillation; pulse but unstable → synchronised cardioversion; stable → specialist advice, amiodarone or procainamide per local protocol (ERC 2021; ESC 2022).'],
+      refs: ['esc2022va', 'brugada1991', 'vereckei2008', 'erc2021'], confusers: ['svt', 'torsades', 'paced', 'vf'] },
+    { id: 'torsades', group: 'ventricular', tier: 3, name: 'Torsades de pointes', short: 'Torsades de pointes',
+      summary: 'Polymorphic VT with a twisting QRS axis, triggered here by an R-on-T beat on a background of a long QT interval.',
+      key: 'polymorphic VT whose QRS amplitude and polarity twist around the baseline, after a long QT',
+      params: { rhythm: 'torsades', hr: 64, qtc: 600, uAmp: 0.06, tWidth: 1.15 }, vary: { hr: [56, 74], qtc: [560, 640] },
+      features: ['The first beats show sinus rhythm with marked QT prolongation (QTc ~600 ms).', 'An early ventricular beat lands on the T wave (R-on-T) and starts a rapid (200–250/min) polymorphic VT.', 'The QRS complexes wax and wane and flip polarity, appearing to twist around the isoelectric line ("spindles").'],
+      criteria: ['Polymorphic VT with a continuously changing QRS axis in the setting of QT prolongation (drug-induced or congenital).'],
+      pearls: ['Give IV magnesium sulfate (2 g), correct potassium (aim 4.5–5 mmol/L) and stop all QT-prolonging drugs; overdrive pacing or isoprenaline for pause-dependent torsades; defibrillate if pulseless (Drew 2010; ESC 2022).'],
+      refs: ['drew2010', 'esc2022va', 'rautaharju2009'], confusers: ['vf', 'vt', 'long-qt', 'af'] },
+    { id: 'vf', group: 'ventricular', tier: 1, name: 'Ventricular fibrillation', short: 'Ventricular fibrillation',
+      summary: 'Chaotic, disorganised ventricular activity with no identifiable QRS complexes — cardiac arrest.',
+      key: 'chaotic irregular deflections of varying amplitude with no identifiable P, QRS or T waves',
+      params: { rhythm: 'vf' }, vary: {},
+      features: ['Chaotic, irregular waveform of constantly changing amplitude and shape.', 'No identifiable P waves, QRS complexes or T waves.', 'Coarse (as here) or fine; fine VF can mimic asystole.'],
+      criteria: ['Rapid, grossly irregular ventricular electrical activity with marked variability in waveform, usually 150–500/min.'],
+      pearls: ['Cardiac arrest with a shockable rhythm: start CPR and defibrillate immediately; adrenaline and amiodarone after the third shock (ERC 2021).', 'If the patient is talking to you it is artefact — check the leads.'],
+      refs: ['erc2021', 'esc2022va'], confusers: ['torsades', 'vt', 'asystole', 'af'] },
+    { id: 'asystole', group: 'ventricular', tier: 1, name: 'Asystole', short: 'Asystole',
+      summary: 'Absence of any ventricular electrical activity — a flat line apart from baseline drift.',
+      key: 'an essentially flat line with no QRS complexes',
+      params: { rhythm: 'asystole', noise: 0.5 }, vary: {},
+      features: ['No QRS complexes; only slow baseline drift and noise.', 'No P waves here (if P waves are present without QRS complexes this is "P-wave asystole" / ventricular standstill — pace it).'],
+      criteria: ['Absent ventricular electrical activity, confirmed in more than one lead with adequate gain.'],
+      pearls: ['Check that the leads are attached and the gain is up; fine VF can look like asystole.', 'Non-shockable cardiac arrest: CPR, adrenaline as soon as possible, and treat reversible causes (4 Hs and 4 Ts) (ERC 2021).'],
+      refs: ['erc2021'], confusers: ['vf', 'avb3', 'low-voltage', 'sinus-brady'] },
+    { id: 'paced', group: 'ventricular', tier: 2, name: 'Ventricular paced rhythm', short: 'Ventricular paced rhythm',
+      summary: 'Regular pacing spikes, each immediately followed by a broad QRS (right-ventricular apical pacing).',
+      key: 'sharp pacing spikes each followed by a broad LBBB-like QRS with a superior axis',
+      params: { rhythm: 'paced', hr: 60 }, vary: { hr: [60, 72] },
+      features: ['Narrow vertical pacing spikes at a fixed rate (here 60/min, VVI).', 'Each spike is followed immediately by a broad QRS (~150 ms): ventricular capture.', 'Right-ventricular apical pacing: LBBB-like V1 with a left (superior) axis — negative QRS in II, III and aVF.', 'ST segments and T waves discordant to the QRS (expected).'],
+      criteria: ['Pacing stimulus artefact followed by a wide QRS complex at the programmed rate.'],
+      pearls: ['Check capture (spike → QRS), sensing (no spikes falling inappropriately) and rate.', 'The (modified) Sgarbossa criteria can be applied to paced rhythms when acute MI is suspected (ESC 2023).'],
+      refs: ['esc2021pacing', 'sgarbossa1996', 'smith2012'], confusers: ['lbbb', 'vt', 'avb3', 'pvc'] },
+    { id: 'avb1', group: 'block', tier: 1, name: 'First-degree AV block', short: 'First-degree AV block',
+      summary: 'Sinus rhythm in which every P wave is conducted, but with a PR interval longer than 200 ms.',
+      key: 'every P conducted with a constant PR longer than 200 ms',
+      params: { rhythm: 'avb1', pr: 290, hr: 70 }, vary: { pr: [230, 340], hr: [58, 86] },
+      features: ['Sinus rhythm, every P wave followed by a QRS.', 'PR interval prolonged (> 200 ms, here about 290 ms — more than one large square) and constant.', 'Normal QRS.'],
+      criteria: ['PR interval > 200 ms with 1:1 AV conduction.'],
+      pearls: ['Usually benign: high vagal tone, AV-nodal drugs, inferior MI, Lyme disease, rheumatic fever, degenerative conduction disease.', 'A very long PR (> 300 ms) can cause symptoms similar to pacemaker syndrome.'],
+      refs: ['acc2018brady', 'mason2007'], confusers: ['avb2-mobitz1', 'normal', 'avb2-mobitz2', 'sinus-brady'] },
+    { id: 'avb2-mobitz1', group: 'block', tier: 2, name: 'Second-degree AV block, Mobitz I (Wenckebach)', short: 'Mobitz I (Wenckebach)',
+      summary: 'Progressive PR prolongation until a P wave is not conducted, in repeating groups.',
+      key: 'progressive PR prolongation until a P wave is blocked (dropped QRS), then the cycle repeats',
+      params: { rhythm: 'avb2-mobitz1', hr: 80, pr: 200, ratio: 4 }, vary: { hr: [72, 96], ratio: [3, 5], pr: [170, 220] },
+      features: ['Regular sinus P waves (P–P constant).', 'The PR interval lengthens beat by beat (biggest increment after the pause) until one P wave is not followed by a QRS.', 'The PR after the pause is the shortest; the R–R intervals shorten before the dropped beat — "grouped beating".'],
+      criteria: ['Progressive PR prolongation before a single non-conducted P wave; the PR after the blocked P is shorter than the PR before it (ACC/AHA/HRS 2018).'],
+      pearls: ['Usually AV-nodal and benign (athletes, sleep, inferior MI, AV-nodal drugs).', 'Compare the PR just before and just after the pause: different → Wenckebach; identical → Mobitz II.'],
+      refs: ['acc2018brady', 'mason2007'], confusers: ['avb2-mobitz2', 'avb3', 'avb1', 'pac'] },
+    { id: 'avb2-mobitz2', group: 'block', tier: 2, name: 'Second-degree AV block, Mobitz II', short: 'Mobitz II',
+      summary: 'Intermittent non-conducted P waves with a constant PR interval in the conducted beats.',
+      key: 'a constant PR with sudden, unpredictable non-conducted P waves (dropped QRS)',
+      params: { rhythm: 'avb2-mobitz2', hr: 78, pr: 180, ratio: 4, morph: 'rbbb', qrs: 136, axis: 75 }, vary: { hr: [68, 92], ratio: [3, 5], pr: [150, 200] },
+      features: ['Regular sinus P waves.', 'PR interval constant in all conducted beats — no progressive prolongation — and the PR after the dropped beat equals the PR before it.', 'Some P waves are suddenly not conducted (dropped QRS).', 'Often accompanied by bundle branch block (here RBBB), as the block is usually below the AV node.'],
+      criteria: ['Non-conducted P waves with constant PR intervals before and after the blocked P (ACC/AHA/HRS 2018).'],
+      pearls: ['Usually infranodal (His–Purkinje): high risk of sudden progression to complete heart block — permanent pacing is indicated (ESC 2021).', 'Fixed 2:1 block cannot be classified as Mobitz I or II from the surface ECG alone.'],
+      refs: ['acc2018brady', 'esc2021pacing', 'mason2007'], confusers: ['avb2-mobitz1', 'avb3', 'avb1', 'pac'] },
+    { id: 'avb3', group: 'block', tier: 1, name: 'Third-degree (complete) AV block', short: 'Complete heart block',
+      summary: 'No atrial impulses reach the ventricles: P waves and QRS complexes march independently, with a slow escape rhythm.',
+      key: 'regular P waves and a slower, regular escape rhythm with no relationship between them (variable PR)',
+      params: { rhythm: 'avb3', atrialRate: 92, escapeRate: 40, escape: 'junctional' }, vary: { atrialRate: [76, 104], escapeRate: [32, 48] },
+      features: ['Regular P waves (here about 90/min) that "march through" the tracing, sometimes hidden in QRS complexes or T waves.', 'Regular, slow QRS rhythm (here about 40/min) — an escape rhythm (junctional if narrow, ventricular if broad).', 'No consistent PR interval: AV dissociation with an atrial rate faster than the ventricular rate.'],
+      criteria: ['Complete absence of AV conduction: atrial and ventricular activity independent, atrial rate > ventricular rate (ACC/AHA/HRS 2018).'],
+      pearls: ['Usually needs pacing (temporary, then permanent); atropine may help junctional escapes; transcutaneous pacing or isoprenaline as a bridge.', 'Causes: degenerative conduction disease, inferior MI (often transient), drugs, Lyme disease, cardiac surgery.'],
+      refs: ['acc2018brady', 'esc2021pacing'], confusers: ['avb2-mobitz2', 'avb2-mobitz1', 'junctional', 'sinus-brady'] },
+    { id: 'rbbb', group: 'conduction', tier: 2, name: 'Right bundle branch block', short: 'Right bundle branch block',
+      summary: 'Delayed right-ventricular activation: QRS ≥ 120 ms with an rSR′ in V1 and a broad S wave in I and V6.',
+      key: 'QRS ≥ 120 ms with rSR′ ("M") in V1 and a broad slurred S wave in I and V6',
+      params: { morph: 'rbbb', qrs: 140, axis: 70, hr: 74 }, vary: { axis: [35, 100], qrs: [126, 156], hr: [60, 92] },
+      features: ['QRS ≥ 120 ms (here ~140 ms).', 'rSR′ ("M"-shaped) complex in V1–V2 with a tall terminal R′.', 'Broad, slurred terminal S wave in I, aVL, V5 and V6 ("W"-shaped V6).', 'Secondary ST depression and T-wave inversion in V1–V3.'],
+      criteria: ['QRS ≥ 120 ms (adults); rsr′, rsR′ or rSR′ in V1 or V2 (R′ usually wider than r); S wave in I and V6 longer than the R wave or > 40 ms; R-peak time > 50 ms in V1 but normal in V5–V6 (AHA/ACCF/HRS 2009).'],
+      pearls: ['Mnemonic "MaRRoW": M in V1, W in V6.', 'Can be normal; a new RBBB may reflect pulmonary embolism, ischaemia or cardiomyopathy.', 'RBBB plus left axis deviation suggests bifascicular block (RBBB + left anterior fascicular block).'],
+      refs: ['surawicz2009'], confusers: ['lbbb', 'wpw', 'stemi-posterior', 'lvh'],
+      highlight: { primary: ['V1', 'V2', 'I', 'V6'] } },
+    { id: 'lbbb', group: 'conduction', tier: 2, name: 'Left bundle branch block', short: 'Left bundle branch block',
+      summary: 'Delayed left-ventricular activation: QRS ≥ 120 ms with broad notched R waves laterally and deep S waves in V1–V3.',
+      key: 'QRS ≥ 120 ms with broad notched R waves in I/aVL/V5–V6, no septal q waves and deep S/QS in V1',
+      params: { morph: 'lbbb', qrs: 152, axis: 10, hr: 76 }, vary: { axis: [-25, 35], qrs: [130, 170], hr: [62, 92] },
+      features: ['QRS ≥ 120 ms (here ~150 ms).', 'Broad, notched or slurred ("M"-shaped) R waves in I, aVL, V5 and V6, without septal q waves.', 'Deep S or QS complexes in V1–V3 ("W"-shaped V1).', 'Discordant ST–T: ST elevation in V1–V3 and ST depression with T inversion in I, aVL, V5–V6.'],
+      criteria: ['QRS ≥ 120 ms (adults); broad notched or slurred R in I, aVL, V5, V6; absent q waves in I, V5 and V6; R-peak time > 60 ms in V5–V6; ST and T usually opposite in direction to the QRS (AHA/ACCF/HRS 2009).'],
+      pearls: ['Mnemonic "WiLLiaM": W in V1, M in V6.', 'Usually indicates structural heart disease. In suspected ACS use the (modified) Sgarbossa criteria: concordant ST elevation ≥ 1 mm, concordant ST depression ≥ 1 mm in V1–V3, or excessively discordant ST elevation (ST/S ≤ −0.25) (Sgarbossa 1996; Smith 2012).', 'ESC 2023: LBBB with symptoms of ongoing ischaemia is managed like STEMI.'],
+      refs: ['surawicz2009', 'sgarbossa1996', 'smith2012', 'esc2023acs'], confusers: ['rbbb', 'lvh', 'paced', 'stemi-anterior'],
+      highlight: { primary: ['V1', 'I', 'aVL', 'V6'] } },
+    { id: 'wpw', group: 'conduction', tier: 3, name: 'Wolff–Parkinson–White pattern (pre-excitation)', short: 'WPW pattern',
+      summary: 'An accessory pathway pre-excites the ventricles: short PR, delta wave and a broad QRS.',
+      key: 'a short PR (< 120 ms) running straight into a slurred delta-wave upstroke and a broad QRS',
+      params: { delta: 50, pr: 108, qrs: 136, hr: 74, deltaVec: [-0.06, 0.30, 0.26], tVec: [0.17, -0.07, -0.10] }, vary: { hr: [62, 90], pr: [96, 116] },
+      features: ['Short PR interval (< 120 ms, here ~110 ms).', 'Delta wave: a slurred, slow initial upstroke of the QRS.', 'Broad QRS (here ~135 ms) with secondary ST–T changes opposite to the delta wave.', 'Here a left-sided pathway: positive delta waves and a dominant R wave in V1 ("type A"), negative delta waves (pseudo-Q waves) in I and aVL.'],
+      criteria: ['PR < 120 ms in sinus rhythm, a delta wave, QRS widening (typically > 110–120 ms in adults) and secondary ST–T changes (AHA/ACCF/HRS 2009).'],
+      pearls: ['WPW syndrome = pre-excitation plus tachyarrhythmia.', 'Pre-excited AF (fast, irregular, broad and varying QRS) can degenerate into VF: avoid AV-nodal blockers (adenosine, verapamil, digoxin, β-blockers); use procainamide/ibutilide or cardioversion (ESC 2019).', 'Catheter ablation of the pathway is curative.'],
+      refs: ['surawicz2009', 'esc2019svt'], confusers: ['lbbb', 'rbbb', 'avb1', 'stemi-inferior'] },
+    { id: 'lvh', group: 'conduction', tier: 2, name: 'Left ventricular hypertrophy with strain', short: 'LVH with strain',
+      summary: 'Large left-ventricular QRS voltages with secondary ("strain") ST depression and T inversion in the lateral leads.',
+      key: 'very tall R waves in V5–V6/aVL and deep S in V1–V2 with lateral downsloping ST depression and T inversion',
+      params: { morph: 'lvh', qrs: 106, axis: -5, hr: 70, qtc: 430, pMorph: 'lae', pDur: 124 }, vary: { axis: [-25, 25], hr: [58, 86] },
+      features: ['High QRS voltage: deep S in V1–V2, tall R in V5–V6 and aVL (Sokolow–Lyon and Cornell criteria met).', 'Slightly prolonged QRS (~105 ms) and leftward axis.', '"Strain": downsloping ST depression with asymmetric T-wave inversion in I, aVL, V5 and V6.', 'Left atrial abnormality: broad notched P in II, deep terminal negative P in V1.'],
+      criteria: ['Sokolow–Lyon: S(V1) + R(V5 or V6) ≥ 35 mm, or R(aVL) ≥ 11 mm (Sokolow & Lyon 1949).', 'Cornell voltage: R(aVL) + S(V3) > 28 mm in men, > 20 mm in women (Casale 1985).', 'Cornell product: (R aVL + S V3, + 6 mm in women) × QRS duration > 2440 mm·ms (Molloy 1992).'],
+      pearls: ['Voltage criteria are specific but insensitive and affected by age, sex, body habitus and race; echocardiography confirms LVH (AHA/ACCF/HRS 2009).', 'Causes: hypertension, aortic stenosis, hypertrophic cardiomyopathy, coarctation.'],
+      refs: ['hancock2009', 'sokolow1949', 'casale1985', 'molloy1992'], confusers: ['lbbb', 'stemi-lateral', 'hypok', 'normal'],
+      highlight: { primary: ['V1', 'V2', 'V5', 'V6', 'aVL'] } },
+    { id: 'stemi-anterior', group: 'ischaemia', tier: 1, name: 'Anterior STEMI', short: 'Anterior STEMI',
+      summary: 'Acute occlusion of the left anterior descending artery: ST elevation in V1–V4 with reciprocal inferior ST depression.',
+      key: 'ST elevation in V1–V4 (± I/aVL) with hyperacute T waves and reciprocal ST depression in III/aVF',
+      params: { st: [0.10, -0.06, 0.20], hyperacute: 1.2, hr: 86, qVec: [0, 0, -0.17] }, vary: { hr: [70, 104], stScale: [0.85, 1.3] },
+      features: ['ST elevation in V1–V4 (maximal V2–V3), extending to I and aVL in this proximal LAD occlusion.', 'Hyperacute, broad T waves in the anterior leads; loss of r-wave height in V1–V3 (early Q/QS).', 'Reciprocal ST depression in III and aVF.'],
+      criteria: ['New ST elevation at the J point in ≥ 2 contiguous leads: ≥ 2 mm (men ≥ 40 y), ≥ 2.5 mm (men < 40 y) or ≥ 1.5 mm (women) in V2–V3, and ≥ 1 mm in other leads (UDMI 2018).'],
+      pearls: ['Immediate reperfusion: primary PCI (target ≤ 120 min from diagnosis to wire crossing) or fibrinolysis if PCI is not available in time (ESC 2023).', 'Look for LAD-occlusion equivalents without ST elevation: de Winter T waves and Wellens pattern.'],
+      refs: ['udmi2018', 'esc2023acs', 'wagner2009'], confusers: ['pericarditis', 'lbbb', 'lvh', 'stemi-lateral'],
+      highlight: { elevation: ['V1', 'V2', 'V3', 'V4', 'I', 'aVL'], reciprocal: ['III', 'aVF'] } },
+    { id: 'stemi-inferior', group: 'ischaemia', tier: 1, name: 'Inferior STEMI', short: 'Inferior STEMI',
+      summary: 'Acute inferior infarction (usually right coronary artery): ST elevation in II, III, aVF with reciprocal depression in aVL.',
+      key: 'ST elevation in II, III and aVF (III > II) with reciprocal ST depression in aVL and I',
+      params: { st: [-0.07, 0.24, -0.03], hyperacute: 1.0, hr: 66, qVec: [0, -0.12, 0] }, vary: { hr: [52, 84], stScale: [0.85, 1.3] },
+      features: ['ST elevation in II, III and aVF, greater in III than II (suggesting the right coronary artery).', 'Reciprocal ST depression in aVL (most sensitive) and I.', 'Hyperacute T waves inferiorly; small Q waves may appear in III and aVF.'],
+      criteria: ['New ST elevation ≥ 1 mm at the J point in ≥ 2 contiguous inferior leads (UDMI 2018).'],
+      pearls: ['Record right-sided leads (ST elevation ≥ 0.5–1 mm in V4R = RV infarction: avoid nitrates, give fluids cautiously) and V7–V9 for posterior extension.', 'Watch for sinus bradycardia and AV block (AV-nodal artery).'],
+      refs: ['udmi2018', 'esc2023acs', 'wagner2009'], confusers: ['pericarditis', 'stemi-lateral', 'stemi-posterior', 'normal'],
+      highlight: { elevation: ['II', 'III', 'aVF'], reciprocal: ['aVL', 'I'] } },
+    { id: 'stemi-lateral', group: 'ischaemia', tier: 2, name: 'Lateral STEMI', short: 'Lateral STEMI',
+      summary: 'Acute lateral infarction (circumflex or diagonal artery): ST elevation in I, aVL, V5 and V6.',
+      key: 'ST elevation in I, aVL, V5 and V6 with reciprocal ST depression in III and aVF',
+      params: { st: [0.15, -0.12, -0.08], hyperacute: 1.0, hr: 88 }, vary: { hr: [70, 104], stScale: [0.9, 1.3] },
+      features: ['ST elevation in I and aVL (high lateral) and V5–V6 (low lateral).', 'Reciprocal ST depression in III and aVF (and V1–V2).', 'Hyperacute lateral T waves.'],
+      criteria: ['New ST elevation ≥ 1 mm in ≥ 2 contiguous lateral leads (I and aVL, or V5 and V6) (UDMI 2018).'],
+      pearls: ['Lateral changes can be subtle (small QRS in aVL); the inferior reciprocal depression is often the clue.', 'Culprit: left circumflex artery or a diagonal branch of the LAD.'],
+      refs: ['udmi2018', 'esc2023acs', 'wagner2009'], confusers: ['stemi-anterior', 'pericarditis', 'lvh', 'stemi-inferior'],
+      highlight: { elevation: ['I', 'aVL', 'V5', 'V6'], reciprocal: ['III', 'aVF'] } },
+    { id: 'stemi-posterior', group: 'ischaemia', tier: 3, name: 'Posterior STEMI', short: 'Posterior STEMI',
+      summary: 'Acute posterior infarction seen "in the mirror": ST depression with tall R waves and upright T waves in V1–V3.',
+      key: 'horizontal ST depression in V1–V3 with tall R waves (R/S > 1 in V2) and upright T waves',
+      params: { morph: 'posterior', st: [0.03, 0.02, -0.17], hyperacute: 0, hr: 78 }, vary: { hr: [64, 96], stScale: [0.9, 1.3] },
+      features: ['Horizontal ST depression in V1–V3 (maximal V2–V3).', 'Tall, broad R waves in V1–V2 (R/S > 1 in V2) — the mirror image of posterior Q waves.', 'Upright, prominent T waves in V1–V3.', 'Posterior leads V7–V9 would show ST elevation.'],
+      criteria: ['ST elevation ≥ 0.5 mm in V7–V9 (≥ 1 mm in men < 40 y) confirms posterior STEMI (UDMI 2018); isolated ST depression ≥ 0.5 mm in V1–V3 should prompt posterior leads.'],
+      pearls: ['Easily missed: treat confirmed posterior STEMI as STEMI (ESC 2023).', 'Often accompanies inferior or lateral STEMI (circumflex or right coronary artery).'],
+      refs: ['udmi2018', 'esc2023acs', 'wagner2009'], confusers: ['rbbb', 'wpw', 'stemi-inferior', 'hypok'],
+      highlight: { reciprocal: ['V1', 'V2', 'V3'] } },
+    { id: 'hyperk', group: 'metabolic', tier: 2, name: 'Hyperkalaemia', short: 'Hyperkalaemia',
+      summary: 'Raised serum potassium: tall peaked T waves, flattened P waves, prolonged PR and a widening QRS.',
+      key: 'tall, narrow, peaked T waves with flattened P waves and a widening QRS',
+      params: { hr: 58, pr: 220, qrs: 138, tAmp: 2.6, tWidth: 0.55, pAmp: 0.35, pDur: 125, qtc: 395, tAxis: 50 }, vary: { hr: [48, 70], tAmp: [2.2, 3.0], qrs: [124, 160] },
+      features: ['Tall, narrow, symmetrical, peaked ("tented") T waves — most obvious in V2–V4.', 'Flattened, widened P waves and a prolonged PR interval.', 'Widened QRS (here ~140 ms) — later merging with the T wave towards a sine-wave pattern.', 'Bradycardia and conduction block are common.'],
+      criteria: ['Progression with rising K⁺ (approximate): peaked T → P flattening and PR prolongation → QRS widening → sine wave → VF/asystole. The ECG correlates poorly with the K⁺ level (Montague 2008).'],
+      pearls: ['A normal ECG does not exclude dangerous hyperkalaemia.', 'Severe hyperkalaemia (≥ 6.5 mmol/L) or ECG changes: IV calcium to stabilise the myocardium, insulin–glucose and salbutamol to shift K⁺, then remove K⁺; monitor the ECG and glucose (UK Kidney Association 2020).'],
+      refs: ['ukka2020', 'montague2008', 'diercks2004'], confusers: ['hypok', 'stemi-anterior', 'long-qt', 'pericarditis'] },
+    { id: 'hypok', group: 'metabolic', tier: 3, name: 'Hypokalaemia', short: 'Hypokalaemia',
+      summary: 'Low serum potassium: flattened T waves, prominent U waves and ST depression (a long "QU" interval).',
+      key: 'flat T waves with prominent U waves (U > T in V2–V3) and ST depression',
+      params: { hr: 74, tAmp: 0.32, uAmp: 0.15, st: [-0.03, -0.035, -0.045], stShape: 'concave', pAmp: 1.3, pr: 190, qtc: 425 }, vary: { hr: [62, 90], uAmp: [0.12, 0.19] },
+      features: ['Flattened (or inverted) T waves.', 'Prominent U waves after the T wave — larger than the T wave, best seen in V2–V3.', 'Sagging ST depression; the apparent "long QT" is really a QU interval.', 'P waves may be taller and the PR slightly longer.'],
+      criteria: ['Typical changes with K⁺ below about 2.7–3.0 mmol/L: T flattening, U waves > 1 mm or larger than the T wave, ST depression (Diercks 2004).'],
+      pearls: ['Replace potassium and magnesium; risk of PVCs, torsades and VF — especially with digoxin or QT-prolonging drugs.', 'Measure the QT to the end of the T wave, not the U wave.'],
+      refs: ['diercks2004', 'rautaharju2009'], confusers: ['hyperk', 'long-qt', 'lvh', 'stemi-posterior'] },
+    { id: 'long-qt', group: 'metabolic', tier: 2, name: 'Long QT interval', short: 'Long QT',
+      summary: 'Prolonged ventricular repolarisation: QTc well above the reference range, raising the risk of torsades de pointes.',
+      key: 'a QT interval longer than half the R–R interval (QTc > 500 ms)',
+      params: { qtc: 545, hr: 64, tWidth: 1.1 }, vary: { qtc: [500, 590], hr: [55, 78] },
+      features: ['Long QT interval: the T wave ends well beyond the midpoint of the R–R interval.', 'QTc here about 540 ms (Fridericia) — > 500 ms is high risk.', 'Broad T waves; otherwise normal sinus rhythm.'],
+      criteria: ['QTc ≥ 450 ms (men) or ≥ 460 ms (women) is prolonged (AHA/ACCF/HRS 2009); > 500 ms carries a high risk of torsades.', 'Congenital LQTS: QTc ≥ 480 ms on repeated ECGs, or LQTS score > 3 (ESC 2022; HRS/EHRA/APHRS 2013).'],
+      pearls: ['Common causes: drugs (class IA/III antiarrhythmics, macrolides, fluoroquinolones, antipsychotics, methadone, ondansetron), hypokalaemia, hypomagnesaemia, hypocalcaemia, bradycardia, congenital LQTS.', 'Measure in II or V5 with the tangent method; Bazett over-corrects at fast rates — prefer Fridericia or Framingham.'],
+      refs: ['rautaharju2009', 'esc2022va', 'priori2013', 'drew2010'], confusers: ['hypok', 'hyperk', 'normal', 'avb1'] },
+    { id: 'pericarditis', group: 'metabolic', tier: 2, name: 'Acute pericarditis', short: 'Acute pericarditis',
+      summary: 'Widespread concave ST elevation with PR depression; only aVR (and V1) shows reciprocal ST depression and PR elevation.',
+      key: 'diffuse concave ST elevation with PR depression, and ST depression with PR elevation only in aVR',
+      params: { hr: 104, st: [0.10, 0.14, 0.08], stShape: 'concave', prShift: [-0.03, -0.055, -0.02] }, vary: { hr: [88, 118], stScale: [0.85, 1.25] },
+      features: ['Widespread concave ("saddle-shaped") ST elevation in I, II, aVL, aVF and V2–V6, not confined to one coronary territory.', 'PR-segment depression in the same leads.', 'aVR (and often V1): ST depression and PR elevation — the only reciprocal changes.', 'Sinus tachycardia is common.'],
+      criteria: ['ECG criterion of acute pericarditis: new widespread ST elevation or PR depression; diagnosis needs 2 of: pericarditic chest pain, friction rub, these ECG changes, new or worsening pericardial effusion (ESC 2015).', 'ST/T amplitude ratio in V6 > 0.25 favours pericarditis over benign early repolarisation (Ginzton & Laks 1982).'],
+      pearls: ['Evolution (Spodick): stage I diffuse ST elevation and PR depression → II normalisation → III T inversion → IV normal.', 'Reciprocal ST depression (other than aVR/V1), convex ST elevation or Q waves suggest STEMI instead.', 'Treatment: NSAID or aspirin plus colchicine (ESC 2015).'],
+      refs: ['esc2015peri', 'spodick2003', 'ginzton1982'], confusers: ['stemi-inferior', 'stemi-anterior', 'normal', 'hyperk'],
+      highlight: { elevation: ['I', 'II', 'aVL', 'aVF', 'V2', 'V3', 'V4', 'V5', 'V6'], reciprocal: ['aVR'] } },
+    { id: 'low-voltage', group: 'metabolic', tier: 3, name: 'Low QRS voltage', short: 'Low QRS voltage',
+      summary: 'Small QRS complexes throughout: < 5 mm in every limb lead and < 10 mm in every precordial lead.',
+      key: 'small QRS complexes: < 5 mm peak-to-peak in all limb leads and < 10 mm in all precordial leads',
+      params: { qrsAmp: 0.32, pAmp: 0.6, tAmp: 0.45, hr: 98 }, vary: { qrsAmp: [0.26, 0.36], hr: [84, 110] },
+      features: ['Peak-to-peak QRS amplitude < 5 mm in all limb leads and < 10 mm in all precordial leads (calibration 10 mm/mV).', 'Here with sinus tachycardia, as seen with a pericardial effusion.', 'Electrical alternans (alternating QRS height) would suggest tamponade.'],
+      criteria: ['QRS amplitude < 5 mm (0.5 mV) in all limb leads and/or < 10 mm (1.0 mV) in all precordial leads (Madias 2008).'],
+      pearls: ['Check the calibration pulse first.', 'Causes: pericardial effusion/tamponade, obesity, COPD/emphysema, pneumothorax, infiltrative cardiomyopathy (amyloid), hypothyroidism, extensive infarction, anasarca.'],
+      refs: ['madias2008', 'mason2007'], confusers: ['normal', 'pericarditis', 'sinus-tachy', 'hypok'] }
+  ];
   var DX_BY_ID = {};
+  DIAGNOSES.forEach(function (d) { DX_BY_ID[d.id] = d; });
+
+  /**
+   * Quiz/variation helper: parameters for a randomised but still diagnostic instance of a diagnosis.
+   * Uniform draws within each "vary" range; integer-valued for rates, ratios and intervals. stScale multiplies the ST vector.
+   */
+  function variant(id, seed) {
+    var dx = DX_BY_ID[id]; if (!dx) return null;
+    var rng = prng(seedOf(seed)), out = {}, v = dx.vary || {};
+    Object.keys(v).forEach(function (k) {
+      var lo = v[k][0], hi = v[k][1], x = lo + (hi - lo) * rng();
+      if (k === 'stScale') { out.st = (dx.params.st || [0, 0, 0]).map(function (c) { return round(c * x, 4); }); return; }
+      out[k] = /^(hr|atrialRate|escapeRate|pr|qrs|qtc|axis|ratio)$/.test(k) ? Math.round(x) : round(x, 3);
+    });
+    if (dx.params.rhythm === 'vf' || dx.params.rhythm === 'asystole') return out;
+    out.qrsAmp = round((dx.params.qrsAmp || 1) * (0.88 + 0.24 * rng()), 3);
+    out.noise = round(0.12 + 0.3 * rng(), 2);
+    return out;
+  }
 
   return {
     LEADS: LEADS, LIMB: LIMB, PRECORDIAL: PRECORDIAL, FRONTAL_ANGLE: FRONTAL_ANGLE, HORIZONTAL: HORIZONTAL,
-    DEFAULTS: DEFAULTS, RHYTHMS: Object.keys(RHYTHMS), DIAGNOSES: DIAGNOSES, byId: function (id) { return DX_BY_ID[id] || null; },
+    DEFAULTS: DEFAULTS, RHYTHMS: Object.keys(RHYTHMS), DIAGNOSES: DIAGNOSES, GROUPS: GROUPS, REFS: REFS, TERRITORIES: TERRITORIES,
+    byId: function (id) { return DX_BY_ID[id] || null; }, variant: variant,
     generate: generate, estimateAxis: estimateAxis, classifyAxis: classifyAxis, quadrant: quadrant,
     qtc: qtc, heartRateFromRR: heartRateFromRR, rate: rate,
     sokolowLyon: sokolowLyon, cornell: cornell, cornellProduct: cornellProduct, stemiThreshold: stemiThreshold,
