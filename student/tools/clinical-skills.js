@@ -192,6 +192,7 @@
     function stopTimer() { if (timerId) { clearInterval(timerId); timerId = null; } }
     function startTimer(secs, nextPhase) {
       stopTimer(); total = secs * 1000; remaining = total; endAt = Date.now() + remaining; paused = false; warned = false;
+      paintTimer();
       timerId = setInterval(function () {
         if (paused) return;
         remaining = Math.max(0, endAt - Date.now()); paintTimer();
@@ -252,7 +253,7 @@
       MT.clear(root); bar = timeEl = labelEl = pb = null;
       if (phase === 'brief') {
         var minsSeg = MT.ui.segmented([{ value: 'auto', label: 'Station default (' + st.mins + ')' }, { value: 5, label: '5 min' }, { value: 8, label: '8 min' }, { value: 10, label: '10 min' }], S.mins, function (v) { S.mins = v; MT.store.set(K_SET, S); });
-        var readSeg = MT.ui.segmented([{ value: 0, label: 'None' }, { value: 60, label: '1 min' }, { value: 120, label: '2 min' }], S.reading, function (v) { S.reading = v; MT.store.set(K_SET, S); });
+        var readSeg = MT.ui.segmented([{ value: 0, label: 'None' }, { value: 60, label: '1 min' }, { value: 120, label: '2 min' }], S.reading, function (v) { S.reading = v; MT.store.set(K_SET, S); render(); });
         var modeSeg = MT.ui.segmented([{ value: 'self', label: 'Self-marking' }, { value: 'peer', label: 'With a partner' }], S.mode, function (v) { S.mode = v; MT.store.set(K_SET, S); render(); });
         var snd = h('input', { type: 'checkbox', checked: S.sound }); snd.addEventListener('change', function () { S.sound = snd.checked; MT.store.set(K_SET, S); });
         root.appendChild(h('div.row', h('a.btn.btn-ghost.btn-sm', { href: '#/osce' }, '← All stations')));
@@ -487,12 +488,11 @@
       var sex = state.sex === 'any' ? null : state.sex === 'male' ? 'M' : 'F';
       var rows = [], last = null;
       list.forEach(function (t) {
-        if (t.group !== last) { last = t.group; rows.push(h('tr', h('th', { colspan: 3, style: 'background:var(--surface-2);color:var(--accent-text)' }, t.group))); }
-        rows.push(h('tr.cs-lab', h('td', h('strong', t.name), t.sex ? h('div.small.muted', 'Differs by sex') : null),
-          h('td', h('span.cs-range', rangeText(t, state.sys, sex)), t.sex && !sex ? h('div.small.muted', 'Male ' + rangeText(t, state.sys, 'M', true) + ' · Female ' + rangeText(t, state.sys, 'F', true)) : null),
-          h('td', labDetails(t, sex))));
+        if (t.group !== last) { last = t.group; rows.push(h('tr', h('th', { colspan: 2, style: 'background:var(--surface-2);color:var(--accent-text)' }, t.group))); }
+        rows.push(h('tr.cs-lab', h('td', h('strong', t.name), t.sex ? h('span.small.muted', ' (differs by sex)') : null, labDetails(t, sex)),
+          h('td', h('span.cs-range', rangeText(t, state.sys, sex)), t.sex && !sex ? h('div.small.muted', { style: 'white-space:normal' }, 'Male ' + rangeText(t, state.sys, 'M', true) + ' · Female ' + rangeText(t, state.sys, 'F', true)) : null)));
       });
-      tbl.appendChild(h('div.table-wrap', h('table.table', h('caption.sr-only', 'Adult reference ranges'), h('thead', h('tr', h('th', 'Test'), h('th', 'Reference range (' + (state.sys === 'si' ? 'SI' : 'conventional') + ')'), h('th', 'Interpretation'))), h('tbody', rows))));
+      tbl.appendChild(h('div.table-wrap', h('table.table', h('caption.sr-only', 'Adult reference ranges'), h('thead', h('tr', h('th', 'Test'), h('th', 'Reference range (' + (state.sys === 'si' ? 'SI' : 'conventional') + ')'))), h('tbody', rows))));
       if (!state.group || state.group === 'all' || state.group === 'Urine') {
         tbl.appendChild(h('details.disclosure', { style: 'margin-top:10px' }, h('summary', 'Urine dipstick (qualitative)'), h('div.disclosure-body', h('div.table-wrap', h('table.table', h('thead', h('tr', h('th', 'Test'), h('th', 'Normal'), h('th', 'Positive suggests'))), h('tbody', D.urineQual.map(function (u) { return h('tr', h('td', u.name), h('td', u.normal), h('td', u.note)); })))))));
       }
@@ -508,7 +508,7 @@
         var msg = st === 'high' ? t.high : st === 'low' ? t.low : null; if (msg) res.appendChild(h('p.small', { style: 'margin:.3rem 0 0' }, msg));
       }
       inp.addEventListener('input', check);
-      return h('details.disclosure', h('summary', 'Meaning'), h('div.disclosure-body',
+      return h('details.disclosure', { style: 'margin-top:6px;font-weight:400' }, h('summary', { style: 'padding:6px 10px;font-weight:600;font-size:.88rem' }, 'Meaning and value check'), h('div.disclosure-body',
         t.high ? h('p.small', h('strong', 'High: '), t.high) : null, t.low ? h('p.small', h('strong', 'Low: '), t.low) : null, t.note ? h('p.small', h('strong', 'Note: '), t.note) : null,
         h('div.row', { style: 'gap:6px' }, inp, h('span.small.muted', state.sys === 'si' ? t.unit : t.convUnit)), res));
     }

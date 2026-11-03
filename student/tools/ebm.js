@@ -38,6 +38,8 @@
     '.eb-chart text{fill:var(--text-2);font-size:10px;font-family:var(--font)}',
     '.eb-chart .gr{stroke:var(--chart-grid);stroke-width:1}',
     '.eb-chart .ax{stroke:var(--chart-axis);stroke-width:1.2}',
+    '.eb-in{border:1px solid var(--border-strong);border-radius:8px;padding:6px 8px;min-height:38px;background:var(--surface);color:var(--text);font:inherit;font-variant-numeric:tabular-nums}',
+    '.eb-in:focus{outline:none;box-shadow:var(--focus);border-color:var(--accent)}',
     '.eb-mono{font-family:var(--mono);font-size:.88rem}',
     '.eb-warn{color:var(--warn);font-weight:600}',
     '.eb-q{font-size:1.05rem;line-height:1.5}',
@@ -233,8 +235,8 @@
       if ([0.001, 0.01, 0.1, 0.2, 0.5, 1, 2, 5, 10, 100, 1000].indexOf(r) >= 0)
         svg.appendChild(s('text', { x: XM + 9, y: yLR(r) + 3, 'text-anchor': 'start' }, String(r)));
     });
-    var line = s('line', { class: 'eb-line' }), hp = s('circle', { r: 8, class: 'eb-h', tabindex: 0, role: 'slider', 'aria-label': 'Pre-test probability (up and down arrows)', 'aria-valuemin': 0.1, 'aria-valuemax': 99.9 });
-    var hl = s('circle', { r: 8, class: 'eb-h', tabindex: 0, role: 'slider', 'aria-label': 'Likelihood ratio (up and down arrows)', 'aria-valuemin': 0.001, 'aria-valuemax': 1000 });
+    var line = s('line', { class: 'eb-line' }), hp = s('circle', { r: 8, class: 'eb-h', tabindex: 0, role: 'slider', 'aria-label': 'Pre-test probability (arrow keys change the value)', 'aria-valuemin': 0.1, 'aria-valuemax': 99.9 });
+    var hl = s('circle', { r: 8, class: 'eb-h', tabindex: 0, role: 'slider', 'aria-label': 'Likelihood ratio (arrow keys change the value)', 'aria-valuemin': 0.001, 'aria-valuemax': 1000 });
     var po = s('circle', { r: 6, class: 'eb-out' });
     var tPre = s('text', { class: 'eb-val', 'text-anchor': 'middle' }), tLR = s('text', { class: 'eb-val', 'text-anchor': 'middle' }), tPost = s('text', { class: 'eb-val', 'text-anchor': 'middle' });
     [line, hp, hl, po, tPre, tLR, tPost].forEach(function (n) { svg.appendChild(n); });
@@ -262,19 +264,20 @@
     }
     drag(hp, function (y) { var l = MT.clamp((y - Y0) / K, -3, 3), p = E.oddsToProb(Math.pow(10, l)); setPre(Math.round(p * 1000) / 1000); });
     drag(hl, function (y) { var l = MT.clamp((Y0 - y) * 2 / K, -3, 3), r = Math.pow(10, l); setLR(Number(r.toPrecision(2))); });
-    hp.addEventListener('keydown', function (e) { var d = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0; if (!d) return; e.preventDefault(); var l = MT.clamp(lo(getPre()) + d * 0.05 * (e.shiftKey ? 4 : 1), -3, 3); setPre(Math.round(E.oddsToProb(Math.pow(10, l)) * 1000) / 1000); });
-    hl.addEventListener('keydown', function (e) { var d = e.key === 'ArrowUp' ? 1 : e.key === 'ArrowDown' ? -1 : 0; if (!d) return; e.preventDefault(); var l = MT.clamp(lg(getLR()) + d * 0.05 * (e.shiftKey ? 4 : 1), -3, 3); setLR(Number(Math.pow(10, l).toPrecision(2))); });
+    hp.addEventListener('keydown', function (e) { var d = (e.key === 'ArrowUp' || e.key === 'ArrowRight') ? 1 : (e.key === 'ArrowDown' || e.key === 'ArrowLeft') ? -1 : 0; if (!d) return; e.preventDefault(); var l = MT.clamp(lo(getPre()) + d * 0.05 * (e.shiftKey ? 4 : 1), -3, 3); setPre(Math.round(E.oddsToProb(Math.pow(10, l)) * 1000) / 1000); });
+    hl.addEventListener('keydown', function (e) { var d = (e.key === 'ArrowUp' || e.key === 'ArrowRight') ? 1 : (e.key === 'ArrowDown' || e.key === 'ArrowLeft') ? -1 : 0; if (!d) return; e.preventDefault(); var l = MT.clamp(lg(getLR()) + d * 0.05 * (e.shiftKey ? 4 : 1), -3, 3); setLR(Number(Math.pow(10, l).toPrecision(2))); });
     update();
     return { el: svg, update: update };
   }
 
   function tabBayes(host, st) {
-    var b = st.bayes, out = h('div', { 'aria-live': 'polite' }), fg, preF, lrF;
+    var b = st.bayes, out = h('div', { 'aria-live': 'polite' }), fg, preF, lrF, preSl;
     function pre() { return MT.clamp(b.pre / 100, 0.0005, 0.9995); }
-    function setPre(p) { b.pre = Math.round(p * 1000) / 10; preF.input.value = String(b.pre); save(st); refresh(); }
+    function setPre(p) { b.pre = Math.round(p * 1000) / 10; preF.input.value = String(b.pre); if (preSl) preSl.value = b.pre; save(st); refresh(); }
     function setLR(r) { b.lr = r; lrF.input.value = String(r); save(st); refresh(); }
     preF = nf('Pre-test probability', b.pre, function (v) { if (v != null && v >= 0.05 && v <= 99.95) { b.pre = v; save(st); refresh(); } }, { unit: '%', hint: 'Prevalence or clinical estimate before the test (0.1–99.9%).' });
     lrF = nf('Likelihood ratio', b.lr, function (v) { if (v != null && v >= 0.001 && v <= 1000) { b.lr = v; save(st); refresh(); } }, { hint: 'LR+ for a positive result, LR− for a negative one (0.001–1000).' });
+    preSl = slider(0.1, 99.9, 0.1, Math.min(99.9, Math.max(0.1, b.pre)), 'Pre-test probability slider', function (v) { b.pre = v; preF.input.value = String(v); save(st); refresh(); });
     fg = fagan(function () { return pre(); }, function () { return MT.clamp(b.lr, 0.001, 1000); }, setPre, setLR);
     var d = st.diag, dd = E.diagnostic(d.tp, d.fp, d.fn, d.tn);
     function refresh() {
@@ -296,8 +299,8 @@
       dd.lrPos && dd.diseased > 0 && dd.healthy > 0 ? [h('button.btn.btn-sm.btn-soft', { type: 'button', onclick: function () { setLR(Math.round(dd.lrPos.v * 100) / 100); } }, 'LR+ from 2×2'), h('button.btn.btn-sm.btn-soft', { type: 'button', onclick: function () { setLR(Math.round(dd.lrNeg.v * 1000) / 1000); } }, 'LR− from 2×2')] : null,
       h('button.btn.btn-sm', { type: 'button', onclick: function () { setLR(1); } }, 'Reset LR = 1'));
     host.appendChild(card('Pre-test to post-test probability',
-      h('p.muted', 'Bayes’ theorem in odds form: post-test odds = pre-test odds × likelihood ratio. Drag the two handles on the Fagan nomogram (or use the arrow keys when a handle has focus); the line reads off the post-test probability.'),
-      h('div.eb-twocol', h('div', h('div.stack', preF, slider(0.1, 99.9, 0.1, Math.min(99.9, Math.max(0.1, b.pre)), 'Pre-test probability slider', function (v) { b.pre = v; preF.input.value = String(v); save(st); refresh(); }), lrF, quick, out)),
+      h('p.muted', 'Bayes’ theorem in odds form: post-test odds = pre-test odds × likelihood ratio. Drag the two handles on the Fagan nomogram (or focus a handle and use the arrow keys to raise or lower its value); the line reads off the post-test probability.'),
+      h('div.eb-twocol', h('div', h('div.stack', preF, preSl, lrF, quick, out)),
         h('div', { style: 'text-align:center' }, fg.el)),
       refs(['Fagan TJ. Nomogram for Bayes’s theorem. N Engl J Med 1975;293:257.', 'Sackett DL, Straus SE, Richardson WS et al. Evidence-Based Medicine: How to Practice and Teach EBM, 2nd ed. 2000.', 'Pre-test probability should come from local prevalence, clinical prediction rules, or experienced judgement; the LR must come from a study in a comparable population.'])));
     refresh();
@@ -347,7 +350,7 @@
     }
     host.appendChild(card('Therapy or risk 2×2',
       h('p.muted', 'Compare an experimental group (treatment or exposure) with a control group.'),
-      h('div.form-grid', { style: '--min:190px' },
+      h('div.grid', { style: '--min:190px;--gap:14px' },
         h('div.field', h('label', 'Outcome (event) is'), sel),
         field('Events: treatment group', 'ea', 'People who had the outcome'), field('Total: treatment group', 'en', 'Everyone randomised/exposed'),
         field('Events: control group', 'ca'), field('Total: control group', 'cn')),
@@ -375,12 +378,12 @@
       MT.clear(body);
       var chk = function (key, label) { var c = h('input', { type: 'checkbox', checked: !!q[key] }); c.addEventListener('change', function () { q[key] = c.checked; save(st); calc(); }); return h('label.check', c, h('span', label)); };
       if (q.mode === 'prop') {
-        body.appendChild(h('div.form-grid', { style: '--min:200px' },
+        body.appendChild(h('div.grid', { style: '--min:200px;--gap:14px' },
           nf('Expected proportion, group 1', q.p1, function (v) { if (v != null && v >= 0 && v <= 1) { q.p1 = v; save(st); calc(); } }, { hint: 'As a decimal, e.g. 0.30 for 30% (control event rate)' }),
           nf('Expected proportion, group 2', q.p2, function (v) { if (v != null && v >= 0 && v <= 1) { q.p2 = v; save(st); calc(); } }, { hint: 'As a decimal, e.g. 0.20' }), common()));
         body.appendChild(h('div', { style: 'margin-top:10px;max-width:520px' }, chk('cc', 'Apply continuity correction (Fleiss–Tytun–Ury)')));
       } else {
-        body.appendChild(h('div.form-grid', { style: '--min:200px' },
+        body.appendChild(h('div.grid', { style: '--min:200px;--gap:14px' },
           nf('Smallest difference worth detecting', q.diff, function (v) { if (v > 0) { q.diff = v; save(st); calc(); } }, { hint: 'In the units of the measurement' }),
           nf('Standard deviation', q.sd, function (v) { if (v > 0) { q.sd = v; save(st); calc(); } }, { hint: 'Assumed common SD from pilot data or literature' }), common()));
         body.appendChild(h('div', { style: 'margin-top:10px;max-width:520px' }, chk('tadj', 'Add small-sample (t-distribution) adjustment, z²/4 (Guenther)')));
@@ -576,9 +579,9 @@
       if (q.pv.cases <= q.pv.n && q.pv.n > 0) o3.appendChild(h('div.result.band-info', h('div.result-label', 'Prevalence'), h('div.result-value', pc(pv.p, 2)), h('div.small', '95% CI (Wilson): ' + pc(pv.lo, 2) + ' to ' + pc(pv.hi, 2) + ' · about ' + MT.fmt(pv.p * 1000, 1) + ' per 1,000. Point prevalence ≈ incidence × mean duration when stable.')));
       else o3.appendChild(MT.ui.alert('warn', 'Cases cannot exceed the population', ''));
     }
-    host.appendChild(card('Incidence rate', h('p.muted', 'New cases divided by total person-time at risk.'), h('div.form-grid', { style: '--min:190px' }, g(q.ir, 'ir', 'ev', 'New cases'), g(q.ir, 'ir', 'pt', 'Person-years at risk'), h('div.field', h('label', 'Express as'), scaleSel)), h('div', { style: 'margin-top:12px' }, o1)));
-    host.appendChild(card('Cumulative incidence (risk)', h('p.muted', 'Proportion of an initially disease-free group who develop the disease over a period.'), h('div.form-grid', { style: '--min:190px' }, g(q.ci, 'ci', 'cases', 'New cases'), g(q.ci, 'ci', 'n', 'Population at risk at the start')), h('div', { style: 'margin-top:12px' }, o2)));
-    host.appendChild(card('Prevalence', h('p.muted', 'Proportion of a population with the disease at a point or during a period.'), h('div.form-grid', { style: '--min:190px' }, g(q.pv, 'pv', 'cases', 'Existing cases'), g(q.pv, 'pv', 'n', 'Population examined')), h('div', { style: 'margin-top:12px' }, o3),
+    host.appendChild(card('Incidence rate', h('p.muted', 'New cases divided by total person-time at risk.'), h('div.grid', { style: '--min:190px;--gap:14px' }, g(q.ir, 'ir', 'ev', 'New cases'), g(q.ir, 'ir', 'pt', 'Person-years at risk'), h('div.field', h('label', 'Express as'), scaleSel)), h('div', { style: 'margin-top:12px' }, o1)));
+    host.appendChild(card('Cumulative incidence (risk)', h('p.muted', 'Proportion of an initially disease-free group who develop the disease over a period.'), h('div.grid', { style: '--min:190px;--gap:14px' }, g(q.ci, 'ci', 'cases', 'New cases'), g(q.ci, 'ci', 'n', 'Population at risk at the start')), h('div', { style: 'margin-top:12px' }, o2)));
+    host.appendChild(card('Prevalence', h('p.muted', 'Proportion of a population with the disease at a point or during a period.'), h('div.grid', { style: '--min:190px;--gap:14px' }, g(q.pv, 'pv', 'cases', 'Existing cases'), g(q.pv, 'pv', 'n', 'Population examined')), h('div', { style: 'margin-top:12px' }, o3),
       refs(['Rothman KJ, Greenland S, Lash TL. Modern Epidemiology, 3rd ed. 2008, ch. 3.', 'Exact Poisson interval: Garwood F. Biometrika 1936;28:437. Proportions: Wilson score interval (Newcombe 1998).', 'Last JM, ed. A Dictionary of Epidemiology, 6th ed.'])));
     upd();
   }
@@ -605,7 +608,7 @@
       out.appendChild(h('p.small', 'Check: PAF from incidence ' + pc(paf2, 1) + ' = (Ip − Io) / Ip. These assume causality, no confounding, and that removing the exposure would leave other risks unchanged. Multiple causes mean attributable fractions can add to more than 100%.'));
     }
     host.appendChild(card('Attributable risk and population attributable fraction', h('p.muted', 'Enter the risk (cumulative incidence) in exposed and unexposed people, and how common the exposure is in the population.'),
-      h('div.form-grid', { style: '--min:190px' }, g('re', 'Risk in exposed', 'Over the same period, e.g. 15%'), g('ro', 'Risk in unexposed', 'e.g. 5%'), g('pe', 'Prevalence of exposure in population', 'e.g. 25% smoke')), h('div', { style: 'margin-top:12px' }, out),
+      h('div.grid', { style: '--min:190px;--gap:14px' }, g('re', 'Risk in exposed', 'Over the same period, e.g. 15%'), g('ro', 'Risk in unexposed', 'e.g. 5%'), g('pe', 'Prevalence of exposure in population', 'e.g. 25% smoke')), h('div', { style: 'margin-top:12px' }, out),
       refs(['Levin ML. The occurrence of lung cancer in man. Acta Un Int Cancer 1953;9:531.', 'Miettinen OS. Proportion of disease caused or prevented by a given exposure. Am J Epidemiol 1974;99:325.', 'Rockhill B, Newman B, Weinberg C. Use and misuse of population attributable fractions. Am J Public Health 1998;88:15.'])));
     upd();
   }
@@ -622,7 +625,7 @@
       out.appendChild(h('p', { style: 'margin-top:10px' }, sig ? 'The interval excludes 1: the observed number is statistically ' + sig + ' than expected from the reference rates.' : 'The interval includes 1: the observed number is compatible with the expected number.'));
     }
     host.appendChild(card('Standardised mortality (or morbidity) ratio', h('p.muted', 'Observed events in a study group divided by the number expected if the group had the age-specific rates of a standard population (indirect standardisation).'),
-      h('div.form-grid', { style: '--min:190px' }, nf('Observed events (O)', q.o, function (v) { if (v != null && v >= 0) { q.o = Math.round(v); save(st); upd(); } }), nf('Expected events (E)', q.e, function (v) { if (v != null && v > 0) { q.e = v; save(st); upd(); } }, { hint: 'Σ (age-specific standard rate × study person-years)' }), h('div.field', h('label', 'Interval method'), sel)),
+      h('div.grid', { style: '--min:190px;--gap:14px' }, nf('Observed events (O)', q.o, function (v) { if (v != null && v >= 0) { q.o = Math.round(v); save(st); upd(); } }), nf('Expected events (E)', q.e, function (v) { if (v != null && v > 0) { q.e = v; save(st); upd(); } }, { hint: 'Σ (age-specific standard rate × study person-years)' }), h('div.field', h('label', 'Interval method'), sel)),
       h('div', { style: 'margin-top:12px' }, out),
       refs(['Exact: Garwood 1936 (Poisson). Byar: Breslow NE, Day NE. Statistical Methods in Cancer Research, vol II (1987), p. 69.', 'SMRs from different populations are not directly comparable with each other because each uses its own weights.'])));
     upd();
@@ -633,7 +636,7 @@
     var scaleSel = h('select', { 'aria-label': 'Rate multiplier' }, [[1000, 'per 1,000'], [100000, 'per 100,000']].map(function (x) { return h('option', { value: x[0] }, x[1]); }));
     scaleSel.value = String(q.scale); scaleSel.addEventListener('change', function () { q.scale = Number(scaleSel.value); save(st); upd(); });
     function cellInput(row, key, label, width, numeric) {
-      var i = h('input', { type: 'text', inputmode: numeric ? 'decimal' : 'text', 'aria-label': label, value: String(row[key]), autocomplete: 'off', style: 'min-width:' + width + 'px;width:100%' });
+      var i = h('input.eb-in', { type: 'text', inputmode: numeric ? 'decimal' : 'text', 'aria-label': label, value: String(row[key]), autocomplete: 'off', style: 'min-width:' + width + 'px;width:100%' });
       i.addEventListener('input', function () { row[key] = numeric ? (MT.num(i.value) != null ? MT.num(i.value) : 0) : i.value; save(st); upd(); }); return i;
     }
     function draw() {
@@ -681,9 +684,9 @@
     var rf = nf('Basic reproduction number R₀', q.r0, function (v) { if (v != null && v >= 0.1 && v <= 50) { q.r0 = v; save(st); upd(); } }, { hint: 'Average secondary cases in a fully susceptible population' });
     function g(key, label) { return nf(label, q[key], function (v) { if (v != null && v >= 0) { q[key] = Math.round(v); save(st); upd(); } }); }
     host.appendChild(card('Herd immunity and vaccine efficacy',
-      h('div.form-grid', { style: '--min:200px' }, rf), h('div', { style: 'margin-top:10px' }, o1),
+      h('div.grid', { style: '--min:200px;--gap:14px' }, rf), h('div', { style: 'margin-top:10px' }, o1),
       h('h3', { style: 'font-size:1rem;margin:16px 0 8px' }, 'Vaccine efficacy from attack rates'),
-      h('div.form-grid', { style: '--min:180px' }, g('cv', 'Cases among vaccinated'), g('nv', 'Total vaccinated'), g('cu', 'Cases among unvaccinated'), g('nu', 'Total unvaccinated')),
+      h('div.grid', { style: '--min:180px;--gap:14px' }, g('cv', 'Cases among vaccinated'), g('nv', 'Total vaccinated'), g('cu', 'Cases among unvaccinated'), g('nu', 'Total unvaccinated')),
       h('div', { style: 'margin-top:10px' }, o2),
       h('details.disclosure', { style: 'margin-top:14px' }, h('summary', 'Typical R₀ values (approximate, setting-dependent)'), h('div.disclosure-body', h('div.table-wrap', h('table.table', h('thead', h('tr', h('th', 'Disease'), h('th', 'Typical R₀'), h('th', 'Herd-immunity threshold'))),
         h('tbody', diseases.map(function (d) { var lo = parseFloat(d[1]), hi = parseFloat(d[1].split('–')[1]); return h('tr', h('td', d[0]), h('td', d[1]), h('td', pc(E.herdImmunityThreshold(lo), 0) + '–' + pc(E.herdImmunityThreshold(hi), 0))); })))),
@@ -705,8 +708,8 @@
     }
     function g(key, label, hint, unit, min) { return nf(label, q[key], function (v) { if (v != null && v > (min || 0)) { q[key] = v; save(st); upd(); } }, { hint: hint, unit: unit }); }
     host.appendChild(card('Doubling time', h('p.muted', 'For exponential growth (epidemic early phase, bacterial growth, tumour volume). Use the same time unit throughout (days, hours, …).'),
-      h('div.form-grid', { style: '--min:180px' }, g('n1', 'Count at start', 'Cases, cells, volume'), g('n2', 'Count at end'), g('dt', 'Time elapsed', 'Between the two counts')), h('div', { style: 'margin-top:12px' }, o1),
-      h('h3', { style: 'font-size:1rem;margin:16px 0 8px' }, 'From a percentage growth rate'), h('div.form-grid', { style: '--min:180px' }, g('pct', 'Growth per time unit', 'e.g. 10% per day', '%', -99)), h('div', { style: 'margin-top:12px' }, o2),
+      h('div.grid', { style: '--min:180px;--gap:14px' }, g('n1', 'Count at start', 'Cases, cells, volume'), g('n2', 'Count at end'), g('dt', 'Time elapsed', 'Between the two counts')), h('div', { style: 'margin-top:12px' }, o1),
+      h('h3', { style: 'font-size:1rem;margin:16px 0 8px' }, 'From a percentage growth rate'), h('div.grid', { style: '--min:180px;--gap:14px' }, g('pct', 'Growth per time unit', 'e.g. 10% per day', '%', -99)), h('div', { style: 'margin-top:12px' }, o2),
       refs(['Doubling time = ln 2 / r; r = ln(N₂/N₁)/(t₂ − t₁). Valid only while growth is exponential (not saturating).', 'Wallinga J, Lipsitch M. How generation intervals shape the relationship between growth rates and reproductive numbers. Proc R Soc B 2007;274:599.'])));
     upd();
   }
