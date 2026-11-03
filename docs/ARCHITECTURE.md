@@ -157,3 +157,7 @@ The four health packages link to each other and read each other's saved data. Ea
 - H2 exposes `MT.help = { emergencyNumber() -> string }` (user-saved, else the country default, else `'112'`) so every package can show a correct "Call" button. Callers must check that it exists.
 
 **Home widgets (order):** H2 emergency banner `0`, H1 health snapshot `10`, H3 today's check-ins `20`, H4 passport and alerts `30`.
+
+## Content Security Policy
+
+Every page ships a CSP (`script-src 'self'`). Inline `<script>`, inline event-handler attributes (`onclick="…"` inside `html:` strings), `javascript:` URLs, `eval`/`new Function` and string `setTimeout` are blocked. Attach listeners with `MT.h(..., { onclick: fn })` or `addEventListener`. Inline styles are allowed. `img-src` and `media-src` allow `data:` and `blob:`. Only the health page's `connect-src` allows the three Open-Meteo hosts.
