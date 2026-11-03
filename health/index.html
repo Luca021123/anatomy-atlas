@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Salus — free pocket health companion</title>
+  <meta name="description" content="Salus is a free, private, offline health companion for anyone, anywhere: know when to get help, first aid, a personal health check with an action plan, home blood-pressure and sleep tracking, stress tools, and a portable health passport.">
+  <meta name="theme-color" content="#15803d">
+  <link rel="icon" href="../assets/icons/health.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/icons/health-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="../assets/css/core.css">
+  <script src="../assets/js/preload.js"></script>
+</head>
+<body data-suite="health">
+  <noscript><p style="padding:16px">Salus needs JavaScript. It runs entirely on your phone and works offline once loaded. In an emergency, call your local emergency number now (112 works from most mobile phones).</p></noscript>
+  <p id="boot-msg" style="padding:24px;font-family:system-ui,sans-serif;color:#555">Loading Salus…</p>
+
+  <script src="../assets/js/core.js"></script>
+
+  <!-- Translations (gettext-style; English is the source language) -->
+  <script src="i18n/languages.js"></script>
+
+  <!-- H2 · Get help now: danger signs, first aid, emergency numbers -->
+  <script src="data/first-aid.js"></script>
+  <script src="lib/triage-lay.js"></script>
+  <script src="tools/get-help.js"></script>
+
+  <!-- H1 · Health check, scores and action plan -->
+  <script src="lib/health-engine.js"></script>
+  <script src="tools/checkup.js"></script>
+
+  <!-- H3 · Daily coach & trackers -->
+  <script src="lib/trackers.js"></script>
+  <script src="tools/coach.js"></script>
+
+  <!-- H4 · Health passport, prevention & environment -->
+  <script src="vendor/qrcode.js"></script>
+  <script src="lib/passport.js"></script>
+  <script src="tools/passport.js"></script>
+  <script src="tools/prevention.js"></script>
+  <script src="tools/environment.js"></script>
+
+  <script src="boot.js"></script>
+</body>
+</html>

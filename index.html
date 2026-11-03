@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Open Medical Toolkit</title>
+  <meta name="description" content="Three free, offline, private toolkits: Medical Student Studio for learning, Clinician Toolkit for practice, and Salus — a health companion for anyone, anywhere.">
+  <meta name="theme-color" content="#1d4ed8">
+  <link rel="icon" href="assets/icons/hub.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/core.css">
+  <script src="assets/js/preload.js"></script>
+  <style>
+    .hub { max-width: 1080px; margin: 0 auto; padding: 28px 16px 48px; }
+    .hub-hero { padding: 18px 0 8px; }
+    .hub-hero h1 { font-size: clamp(1.8rem, 4.5vw, 2.6rem); letter-spacing: -.02em; margin-bottom: .35em; }
+    .hub-hero p { font-size: 1.1rem; color: var(--text-2); max-width: 62ch; }
+    .suite-card { display: flex; flex-direction: column; gap: .6rem; border-top: 5px solid var(--accent); }
+    .suite-card .tag { font-size: .75rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: var(--accent-text); }
+    .suite-card h2 { margin: 0; font-size: 1.35rem; }
+    .suite-card ul { margin: 0; padding-left: 1.1em; color: var(--text-2); font-size: .94rem; }
+    .suite-card .btn { margin-top: auto; align-self: flex-start; }
+    .suite-card .ico { font-size: 1.8rem; }
+    .principles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+    .principles .card h3 { font-size: 1rem; margin-bottom: .25rem; }
+    .principles .card p { margin: 0; color: var(--text-2); font-size: .92rem; }
+    .hub-top { display: flex; align-items: center; gap: .6rem; font-weight: 800; }
+    .hub-top .logo { width: 34px; height: 34px; border-radius: 10px; background: var(--accent); color: #fff; display: grid; place-items: center; }
+  </style>
+</head>
+<body>
+  <div class="hub">
+    <div class="hub-top"><span class="logo" aria-hidden="true">✚</span> Open Medical Toolkit</div>
+
+    <section class="hub-hero">
+      <h1>Free tools for learning medicine, practising it, and staying healthy.</h1>
+      <p>Three toolkits that run entirely on your device. They work offline and need no account, and nothing you type is sent anywhere. They also work on low-cost phones and can be shared as plain files.</p>
+    </section>
+
+    <div class="grid" style="--min:290px;margin-top:18px">
+      <article class="card card-lg suite-card" data-suite="student">
+        <span class="ico" aria-hidden="true">🎓</span>
+        <span class="tag">For medical students</span>
+        <h2>Medical Student Studio</h2>
+        <ul>
+          <li>FSRS spaced-repetition flashcards with ready-made high-yield decks</li>
+          <li>Interactive anatomy: brachial plexus, cranial nerves, dermatomes, muscles</li>
+          <li>Physiology simulators: oxygen–haemoglobin curve, action potential, pressure–volume loops</li>
+          <li>ECG trainer built on a cardiac-vector model, OSCE stations, EBM and statistics maths</li>
+        </ul>
+        <a class="btn btn-primary" href="student/index.html">Open the Studio →</a>
+      </article>
+
+      <article class="card card-lg suite-card" data-suite="clinician">
+        <span class="ico" aria-hidden="true">🩺</span>
+        <span class="tag">For health-care practitioners</span>
+        <h2>Clinician Toolkit</h2>
+        <ul>
+          <li>Validated scores and calculators with references (CHA₂DS₂-VA, CURB-65, NEWS2, CKD-EPI 2021…)</li>
+          <li>Stepwise acid–base interpreter, fluids, infusions, and paediatric emergency doses</li>
+          <li>Resuscitation timer and event log, SATS triage, ISBAR handover and SOAP notes</li>
+          <li>Pregnancy dating and obstetric tools</li>
+        </ul>
+        <a class="btn btn-primary" href="clinician/index.html">Open the Toolkit →</a>
+      </article>
+
+      <article class="card card-lg suite-card" data-suite="health">
+        <span class="ico" aria-hidden="true">♥</span>
+        <span class="tag">For everyone, everywhere</span>
+        <h2>Salus</h2>
+        <ul>
+          <li>“Do I need help now?” danger-sign checker and step-by-step first aid, with read-aloud</li>
+          <li>Personal health check with a ranked action plan built on the latest evidence</li>
+          <li>Home blood pressure, sleep regularity, stress and habit coaching</li>
+          <li>Portable health passport (QR code), vaccines, screening, and heat and air-quality alerts</li>
+        </ul>
+        <a class="btn btn-primary" href="health/index.html">Open Salus →</a>
+      </article>
+    </div>
+
+    <h2 class="section-title">Design principles</h2>
+    <div class="principles">
+      <div class="card"><h3>📴 Offline-first</h3><p>After the first visit everything works without signal. You can install it as an app or open it from a saved file.</p></div>
+      <div class="card"><h3>🔒 Private by design</h3><p>There are no accounts, no tracking and no servers. Your data stays on your device, and you can back it up or erase it in two taps.</p></div>
+      <div class="card"><h3>📚 Evidence-linked</h3><p>Every score and recommendation cites its source, and the code is open to inspect and test.</p></div>
+      <div class="card"><h3>🌍 Built for everyone</h3><p>It is light enough for low-cost phones, has large-text and read-aloud modes, and supports more languages over time.</p></div>
+    </div>
+
+    <p class="disclaimer" style="margin-top:28px">These tools support learning and clinical decisions. They do not replace professional judgement, local guidelines, or emergency services. In an emergency, call your local emergency number. 112 works from most mobile phones.</p>
+  </div>
+  <script src="assets/js/hub.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "open-medical-toolkit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Free, offline, private medical tools: Medical Student Studio, Clinician Toolkit, and Salus (public health companion).",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"tests/unit/*.test.js\"",
+    "smoke": "node tests/e2e/smoke.cjs",
+    "smoke:mobile": "node tests/e2e/smoke.cjs --mobile",
+    "check": "node tests/e2e/check.cjs",
+    "serve": "node tools/serve.cjs 8080",
+    "icons": "node tools/make-icons.cjs",
+    "bundle": "node tools/bundle.cjs"
+  },
+  "engines": { "node": ">=20" }
+}

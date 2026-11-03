@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Clinician Toolkit — Open Medical Toolkit</title>
+  <meta name="description" content="Free, offline clinical decision-support tools: evidence-based calculators and scores, acid–base interpreter, fluids, infusions and paediatric emergency doses, resuscitation timer, triage, and structured clinical notes.">
+  <meta name="theme-color" content="#0f766e">
+  <link rel="icon" href="../assets/icons/clinician.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/icons/clinician-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="../assets/css/core.css">
+  <script src="../assets/js/preload.js"></script>
+</head>
+<body data-suite="clinician">
+  <noscript><p style="padding:16px">This app needs JavaScript. It runs entirely on your device and works offline once loaded.</p></noscript>
+  <p id="boot-msg" style="padding:24px;font-family:system-ui,sans-serif;color:#555">Loading Clinician Toolkit…</p>
+
+  <script src="../assets/js/core.js"></script>
+
+  <!-- Calculator library (definitions push into self.MTCalcs) -->
+  <script src="lib/calcs-cardio-renal.js"></script>   <!-- C1a -->
+  <script src="lib/calcs-acute-care.js"></script>     <!-- C1b -->
+  <script src="tools/calculators.js"></script>        <!-- calculator browser (core) -->
+
+  <!-- C2 · Acid–base, fluids & drugs -->
+  <script src="lib/acidbase.js"></script>
+  <script src="lib/fluids-drugs.js"></script>
+  <script src="tools/acidbase.js"></script>
+  <script src="tools/fluids-drugs.js"></script>
+
+  <!-- C3 · Emergency workflow & documentation -->
+  <script src="lib/triage.js"></script>
+  <script src="tools/resus.js"></script>
+  <script src="tools/triage.js"></script>
+  <script src="tools/notes.js"></script>
+  <script src="tools/obstetrics.js"></script>
+
+  <script src="boot.js"></script>
+</body>
+</html>

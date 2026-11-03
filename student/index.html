@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Medical Student Studio — Open Medical Toolkit</title>
+  <meta name="description" content="Free, offline study tools for medical students: spaced-repetition flashcards, interactive anatomy, physiology simulators, ECG and acid–base trainers, OSCE practice and evidence-based-medicine calculators.">
+  <meta name="theme-color" content="#6d28d9">
+  <link rel="icon" href="../assets/icons/student.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/icons/student-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="../assets/css/core.css">
+  <script src="../assets/js/preload.js"></script>
+</head>
+<body data-suite="student">
+  <noscript><p style="padding:16px">This app needs JavaScript. It runs entirely on your device and works offline once loaded.</p></noscript>
+  <p id="boot-msg" style="padding:24px;font-family:system-ui,sans-serif;color:#555">Loading Medical Student Studio…</p>
+
+  <script src="../assets/js/core.js"></script>
+
+  <!-- S1 · Recall Lab (spaced repetition) -->
+  <script src="lib/fsrs.js"></script>
+  <script src="data/decks.js"></script>
+  <script src="tools/recall.js"></script>
+
+  <!-- S2 · Physiology Lab (simulators) -->
+  <script src="lib/physiology.js"></script>
+  <script src="tools/physiology.js"></script>
+
+  <!-- S3 · Anatomy Atlas -->
+  <script src="data/anatomy.js"></script>
+  <script src="tools/anatomy.js"></script>
+
+  <!-- S4 · ECG Lab -->
+  <script src="lib/ecg.js"></script>
+  <script src="tools/ecg.js"></script>
+
+  <!-- S5 · Clinical skills, reasoning & EBM -->
+  <script src="lib/ebm.js"></script>
+  <script src="data/clinical-skills.js"></script>
+  <script src="tools/clinical-skills.js"></script>
+  <script src="tools/ebm.js"></script>
+
+  <script src="boot.js"></script>
+</body>
+</html>
