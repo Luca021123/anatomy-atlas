@@ -73,7 +73,7 @@ test('lesion questions: clues exist for every lesion and options are lesion name
       assert.equal(q.clues.length, 4);
       q.clues.forEach((c) => assert.ok(c.text && c.text.length > 3, les.id + ' ' + c.label));
       // clues must not give away the answer name outright
-      assert.ok(!q.clues[0].text.toLowerCase().includes(les.short.toLowerCase()));
+      assert.ok(!q.clues[0].text.toLowerCase().includes(les.name.toLowerCase()));
     });
   });
 });

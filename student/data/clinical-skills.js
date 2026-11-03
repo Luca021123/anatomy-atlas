@@ -305,7 +305,7 @@
     patient: { who: 'Volunteer; partner supplies findings.', opening: 'Report pain on lifting the arm sideways.',
       info: ['Partner role: describe findings when asked.'],
       findings: ['Scenario: right subacromial impingement / rotator cuff tendinopathy.', 'Normal inspection; tender over the subacromial space; painful arc 70–110°; full passive range; weak and painful empty-can test; Neer’s and Hawkins–Kennedy positive; neck movements normal.'] },
-    approach: ['Look → feel → move (active, passive) → special tests (rotator cuff, impingement, AC, instability) → neck.', 'Differential: rotator cuff tendinopathy/tear, frozen shoulder (painful limited active and passive movement), AC osteoarthritis, glenohumeral OA, cervical referred pain. Plan: analgesia, physiotherapy, subacromial injection, ultrasound/MRI if cuff tear suspected.'],
+    approach: ['Look → feel → move (active, passive) → special tests (rotator cuff, impingement, AC, instability) → neck.', 'Active movement reveals pain and weakness; if passive movement is equally restricted think capsular problems such as frozen shoulder.', 'Differential: rotator cuff tendinopathy/tear, frozen shoulder (painful limited active and passive movement), AC osteoarthritis, glenohumeral OA, cervical referred pain. Plan: analgesia, physiotherapy, subacromial injection, ultrasound/MRI if cuff tear suspected.'],
     pitfalls: ['Not comparing sides.', 'Passive before active movement.', 'Not examining the neck.', 'Naming a diagnosis without listing alternatives.'] });
 
   S({ id: 'ex-spine', type: 'exam', title: 'Spine examination', setting: 'Orthopaedic/rheumatology clinic',
