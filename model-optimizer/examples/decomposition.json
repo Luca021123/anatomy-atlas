@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "title": "Clinic appointment-booking web app (MVP)",
+  "goal": "Ship a minimal appointment-booking web app for a small medical practice: patients book, reschedule and cancel appointments online; staff manage availability; reminders go out by email.",
+  "shared_context": "Stack: TypeScript, Next.js (app router), PostgreSQL via Prisma, deployed on Vercel. The practice has 3 practitioners and roughly 400 appointments a month. Patient data is personal health information and must be handled under POPIA: collect the minimum, encrypt in transit and at rest, and log access to records. Existing assets: the practice's brand colours and logo, a list of 12 appointment types with durations, and the practitioners' weekly schedules as a spreadsheet.",
+  "assumptions": [
+    "Email (not SMS) is sufficient for reminders in the MVP.",
+    "Payments are out of scope."
+  ],
+  "open_questions": [
+    "Must patients create accounts, or is booking by email + one-time code acceptable?",
+    "Who may see a patient's appointment history: every practitioner, or only the one they booked with?"
+  ],
+  "subsections": [
+    {
+      "id": "S1",
+      "title": "Design the data model and booking rules",
+      "description": "Design the PostgreSQL schema (Prisma) for practitioners, appointment types, availability rules, exceptions (leave, public holidays), appointments and audit logs. Specify the booking rules precisely: slot generation from weekly schedules, buffer times, double-booking prevention under concurrent requests, reschedule and cancellation windows, and time-zone handling.",
+      "category": "architecture",
+      "signals": { "reasoning": 4, "ambiguity": 3, "expertise": 4, "context": 3, "output": 3, "horizon": 1, "criticality": 4, "verifiability": 2 },
+      "rationale": "Concurrency-safe booking and POPIA-compliant audit design need expert judgment; errors propagate into every later step and are hard to spot by reading.",
+      "depends_on": [],
+      "inputs": [
+        { "artifact": "practitioner-schedules", "from": "project" },
+        { "artifact": "appointment-types", "from": "project" }
+      ],
+      "outputs": [
+        { "name": "schema.prisma", "description": "Prisma schema with comments", "format": "prisma schema" },
+        { "name": "booking-rules", "description": "Precise booking and slot-generation rules with edge cases", "format": "markdown" }
+      ],
+      "acceptance_criteria": [
+        "Schema prevents double-booking at the database level (unique constraint or exclusion constraint).",
+        "Every rule in booking-rules has at least one worked edge case.",
+        "Audit log captures who accessed which patient record and when."
+      ],
+      "integration_notes": "S2, S3 and S4 build directly on the schema and the rules.",
+      "est_input_tokens": 1500,
+      "est_output_tokens": 3500,
+      "repetitions": 1,
+      "latency_sensitive": true
+    },
+    {
+      "id": "S2",
+      "title": "Implement the slot-generation and booking API",
+      "description": "Implement Next.js route handlers for listing available slots, booking, rescheduling and cancelling, following booking-rules exactly. Use a transaction with row locking (or the exclusion constraint) so two patients cannot book the same slot.",
+      "category": "code_generation",
+      "signals": { "reasoning": 3, "ambiguity": 2, "expertise": 3, "context": 3, "output": 4, "horizon": 2, "criticality": 4, "verifiability": 4 },
+      "rationale": "Well-specified by S1, but concurrency handling and correctness matter; tests can check most of it.",
+      "depends_on": ["S1"],
+      "inputs": [
+        { "artifact": "schema.prisma", "from": "S1" },
+        { "artifact": "booking-rules", "from": "S1" }
+      ],
+      "outputs": [{ "name": "booking-api", "description": "Route handlers and service layer", "format": "typescript modules" }],
+      "acceptance_criteria": [
+        "All four operations implemented with input validation.",
+        "Concurrent booking of the same slot results in exactly one success.",
+        "Cancellation and reschedule windows from booking-rules are enforced."
+      ],
+      "integration_notes": "Consumed by the patient UI (S4) and covered by tests (S5).",
+      "est_input_tokens": 2500,
+      "est_output_tokens": 6000,
+      "repetitions": 1,
+      "latency_sensitive": true
+    },
+    {
+      "id": "S3",
+      "title": "Write the email reminder job",
+      "description": "Write a scheduled job (Vercel cron) that emails patients a reminder 24 hours before their appointment, with reschedule and cancel links. Include plain-text and HTML templates in the practice's brand colours.",
+      "category": "code_generation",
+      "signals": { "reasoning": 2, "ambiguity": 2, "expertise": 2, "context": 2, "output": 3, "horizon": 1, "criticality": 3, "verifiability": 4 },
+      "rationale": "Standard cron + email templating against a known schema.",
+      "depends_on": ["S1"],
+      "inputs": [{ "artifact": "schema.prisma", "from": "S1" }],
+      "outputs": [{ "name": "reminder-job", "description": "Cron handler and email templates", "format": "typescript modules" }],
+      "acceptance_criteria": [
+        "Reminders are sent exactly once per appointment.",
+        "Links let the patient reschedule or cancel without logging in again."
+      ],
+      "integration_notes": "Uses the API's reschedule/cancel endpoints from S2 via links.",
+      "est_input_tokens": 800,
+      "est_output_tokens": 2200,
+      "repetitions": 1,
+      "latency_sensitive": true
+    },
+    {
+      "id": "S4",
+      "title": "Build the patient booking UI",
+      "description": "Build the patient-facing pages: choose appointment type, pick a practitioner and slot, enter contact details, confirm; plus a manage-booking page. Accessible (WCAG 2.2 AA), mobile-first, brand colours.",
+      "category": "code_generation",
+      "signals": { "reasoning": 2, "ambiguity": 2, "expertise": 2, "context": 3, "output": 4, "horizon": 2, "criticality": 3, "verifiability": 3 },
+      "rationale": "Routine UI work against a defined API; size of output is the main challenge.",
+      "depends_on": ["S2"],
+      "inputs": [{ "artifact": "booking-api", "from": "S2" }],
+      "outputs": [{ "name": "patient-ui", "description": "Next.js pages and components", "format": "tsx components" }],
+      "acceptance_criteria": [
+        "A patient can complete a booking in at most four steps.",
+        "All form fields have labels and keyboard focus order is logical.",
+        "Errors from the API are shown in plain language."
+      ],
+      "integration_notes": "Final user-facing deliverable; assembled in S7.",
+      "est_input_tokens": 1500,
+      "est_output_tokens": 7000,
+      "repetitions": 1,
+      "latency_sensitive": true
+    },
+    {
+      "id": "S5",
+      "title": "Write tests for the booking API",
+      "description": "Write integration tests for the booking API covering slot generation, double-booking under concurrency, reschedule/cancel windows and time-zone edge cases.",
+      "category": "testing",
+      "signals": { "reasoning": 2, "ambiguity": 1, "expertise": 2, "context": 3, "output": 3, "horizon": 2, "criticality": 3, "verifiability": 5 },
+      "rationale": "Mechanical once the rules exist; correctness is checked by running the tests.",
+      "depends_on": ["S2"],
+      "inputs": [
+        { "artifact": "booking-api", "from": "S2" },
+        { "artifact": "booking-rules", "from": "S1" }
+      ],
+      "outputs": [{ "name": "api-tests", "description": "Vitest integration tests", "format": "typescript tests" }],
+      "acceptance_criteria": [
+        "Each booking rule has at least one test.",
+        "A concurrency test fires 20 simultaneous bookings for one slot and expects exactly one success."
+      ],
+      "integration_notes": "Run in CI; failures block the integration step.",
+      "est_input_tokens": 1000,
+      "est_output_tokens": 3500,
+      "repetitions": 1,
+      "latency_sensitive": true
+    },
+    {
+      "id": "S6",
+      "title": "Convert practitioner schedules into seed data",
+      "description": "Convert each practitioner's weekly schedule from the spreadsheet export into Prisma seed records (availability rules), one practitioner at a time.",
+      "category": "transformation",
+      "signals": { "reasoning": 1, "ambiguity": 1, "expertise": 1, "context": 2, "output": 2, "horizon": 1, "criticality": 2, "verifiability": 5 },
+      "rationale": "Mechanical format conversion with an exact target schema.",
+      "depends_on": ["S1"],
+      "inputs": [
+        { "artifact": "schema.prisma", "from": "S1" },
+        { "artifact": "practitioner-schedules", "from": "project" }
+      ],
+      "outputs": [{ "name": "seed-data", "description": "Seed records per practitioner", "format": "typescript seed file" }],
+      "acceptance_criteria": ["Seed records validate against the Prisma schema.", "Every weekly slot in the spreadsheet appears exactly once."],
+      "integration_notes": "Loaded during deployment in S7.",
+      "est_input_tokens": 1200,
+      "est_output_tokens": 900,
+      "repetitions": 3,
+      "latency_sensitive": false
+    },
+    {
+      "id": "S7",
+      "title": "Integrate, review and prepare deployment",
+      "description": "Assemble the API, UI, reminder job, tests and seed data into a deployable app; check that interfaces match (types, routes, links in emails), that POPIA requirements are met end to end, and write the deployment checklist.",
+      "category": "integration",
+      "signals": { "reasoning": 3, "ambiguity": 2, "expertise": 3, "context": 5, "output": 3, "horizon": 3, "criticality": 4, "verifiability": 3 },
+      "rationale": "Cross-cutting consistency across every artifact; compliance review raises the stakes.",
+      "depends_on": ["S3", "S4", "S5", "S6"],
+      "inputs": [
+        { "artifact": "booking-api", "from": "S2" },
+        { "artifact": "patient-ui", "from": "S4" },
+        { "artifact": "reminder-job", "from": "S3" },
+        { "artifact": "api-tests", "from": "S5" },
+        { "artifact": "seed-data", "from": "S6" }
+      ],
+      "outputs": [
+        { "name": "integration-report", "description": "Interface mismatches found and fixed, POPIA checklist results", "format": "markdown" },
+        { "name": "deployment-checklist", "description": "Step-by-step deployment and rollback plan", "format": "markdown" }
+      ],
+      "acceptance_criteria": [
+        "Every interface between artifacts is listed and confirmed consistent or fixed.",
+        "POPIA checklist covers collection, storage, access logging and retention.",
+        "Deployment checklist includes a rollback step."
+      ],
+      "integration_notes": "Final deliverable.",
+      "est_input_tokens": 500,
+      "est_output_tokens": 3000,
+      "repetitions": 1,
+      "latency_sensitive": true
+    }
+  ],
+  "source": { "planner": "external" }
+}

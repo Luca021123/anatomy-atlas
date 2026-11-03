@@ -1,0 +1,36 @@
+{
+  "name": "model-optimizer",
+  "version": "0.1.0",
+  "description": "Breaks any task, project or plan into subsections and routes each one to the Claude model and effort level that delivers the quality floor at the lowest expected cost, with live metrics and a self-calibrating feedback loop.",
+  "type": "module",
+  "bin": {
+    "mopt": "bin/mopt.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "src",
+    "skill",
+    "examples"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --test-reporter=spec \"test/**/*.test.ts\"",
+    "check": "npm run typecheck && npm test",
+    "mopt": "node src/cli.ts",
+    "prepare": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.4.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "typescript": "~6.0.2"
+  },
+  "license": "MIT"
+}
