@@ -128,7 +128,7 @@ export function renderHtml(input: HtmlInput): string {
   const tiles: string[] = [];
   tiles.push(
     tile(
-      "Expected cost",
+      plan.options.mode === "agent" ? "Expected usage (API-equivalent)" : "Expected cost",
       usd(m.cost.expected_with_cache),
       `p50 ${usd(m.cost.p50)} · p90 ${usd(m.cost.p90)} · worst case ${usd(m.cost.worst_case)}`,
       "hero",

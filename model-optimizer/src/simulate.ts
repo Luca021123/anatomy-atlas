@@ -36,7 +36,9 @@ export function costDistribution(
     const sub = subs.get(r.id) as Subsection;
     const ladder: Config[] = [{ model: r.model, effort: r.effort }, ...r.escalation];
     const usesJudge = r.verification.method !== "self-check" && r.verification.judge !== undefined;
-    const judge = usesJudge && r.verification.judge ? costs.judge(sub, r.verification.judge, { batch: r.batch.applied }).cost : 0;
+    const judge =
+      (usesJudge && r.verification.judge ? costs.judge(sub, r.verification.judge, { batch: r.batch.applied }).cost : 0) +
+      (usesJudge && r.verification.second_judge ? costs.judge(sub, r.verification.second_judge, { batch: r.batch.applied }).cost : 0);
     const rungs = ladder.map((c, i) => ({
       cost: costs.attempt(sub, c, { rung: i, batch: r.batch.applied }).cost + judge,
       p: successProbability(catalog.get(c.model).ceiling[c.effort], r.difficulty.level),

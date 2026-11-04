@@ -197,6 +197,7 @@ function cacheCorrection(plan: RoutedPlan): number {
   const cm = new CostModel(defaultCatalog, plan.decomposition, {
     cache: plan.options.cache,
     systemPromptTokens: plan.options.systemPromptTokens,
+    mode: plan.options.mode,
   }, plan.calibration);
   let corr = 0;
   for (const c of plan.metrics.cache) {
@@ -252,7 +253,7 @@ test("metrics: savings pct is consistent with the reference baseline cost", () =
 test("metrics: the reference baseline equals the sum of baseline first attempts plus the prefix correction", () => {
   const plan = route(sample());
   const ref = plan.metrics.baselines[0]!;
-  const cm = new CostModel(defaultCatalog, plan.decomposition, { cache: plan.options.cache, systemPromptTokens: plan.options.systemPromptTokens });
+  const cm = new CostModel(defaultCatalog, plan.decomposition, { cache: plan.options.cache, systemPromptTokens: plan.options.systemPromptTokens, mode: plan.options.mode });
   const calls = plan.decomposition.subsections.reduce((s, x) => s + x.repetitions, 0);
   const p = cm.prefixCost(ref.model, calls, "1h");
   let expected = p.cost - p.warm;

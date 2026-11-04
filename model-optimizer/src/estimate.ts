@@ -64,7 +64,24 @@ export interface AttemptEstimate {
 export interface CostModelOptions {
   cache: boolean;
   systemPromptTokens: number;
+  /** "agent": Claude Code subagents (multi-step tool loops). "api": one Messages API call per attempt. */
+  mode?: "agent" | "api";
 }
+
+/**
+ * Agent mode (PRIORS, recalibrated from `mopt log --total-tokens`). A Claude Code
+ * subagent is a loop of tool steps; every step re-reads the whole context, mostly
+ * from the prompt cache. The horizon signal sets the number of steps.
+ */
+export const AGENT_STEPS_BY_HORIZON = [2, 4, 8, 14, 24];
+/** Claude Code's subagent system prompt and tool definitions, read from cache every step. */
+export const AGENT_BASE_CONTEXT = 12_000;
+/** New context per step (tool results, file contents) beyond the subsection's own output. */
+export const AGENT_STEP_TOKENS = 1_200;
+/** Output per step spent on tool calls and short narration. */
+export const AGENT_STEP_OUTPUT = 120;
+/** A reviewer subagent reads the artifacts, may run checks, and answers. */
+export const AGENT_REVIEW_STEPS = 3;
 
 /**
  * The shared cost model for one decomposition. Estimates are per repetition;
@@ -150,6 +167,17 @@ export class CostModel {
     const input = Math.round((base.input + extra) * ratio);
     const output = base.output;
     const thinking = Math.round(output * Math.max(0, this.outputMultiplier(spec, config.effort) - 1));
+    if (this.options.mode === "agent") {
+      const steps = AGENT_STEPS_BY_HORIZON[sub.signals.horizon - 1] ?? 8;
+      const agent = this.agentLoop(spec, steps, prefix + input, output + thinking, opts.batch ?? false);
+      return {
+        tokens: { prefix, input, output, thinking, steps, total: agent.total },
+        cost: agent.cost,
+        latency_s: steps * spec.ttftS + (output + thinking + steps * AGENT_STEP_OUTPUT) / this.throughput(spec),
+        cacheable: false,
+        max_tokens: maxTokensFor(spec, output + thinking),
+      };
+    }
     const cacheable = this.options.cache && prefix >= spec.minCacheableTokens;
     const warm = opts.warmCache ?? true;
     const ttl = opts.ttl ?? "5m";
@@ -175,10 +203,31 @@ export class CostModel {
     const criteria = approxTokens(sub.acceptance_criteria.join("\n") + sub.outputs.map((o) => o.name).join(" "));
     const input = Math.round((JUDGE_SYSTEM_TOKENS + criteria + sub.est_output_tokens) * this.inputRatio(spec));
     const output = Math.round(JUDGE_OUTPUT_TOKENS * this.outputMultiplier(spec, judge.effort));
+    if (this.options.mode === "agent") {
+      const agent = this.agentLoop(spec, AGENT_REVIEW_STEPS, input, output, opts.batch ?? false);
+      return { cost: agent.cost, latency_s: AGENT_REVIEW_STEPS * spec.ttftS + output / this.throughput(spec) };
+    }
     return {
       cost: callCost(spec, { uncached: input, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0, output }, opts.batch ?? false),
       latency_s: spec.ttftS + output / this.throughput(spec),
     };
+  }
+
+  /**
+   * Token accounting for one subagent run of `steps` steps. Step 1 writes the task
+   * context to the cache; every later step reads everything so far from the cache
+   * and writes only what is new. The base context is shared across subagents of
+   * the same model, so it is billed as a cache read.
+   */
+  agentLoop(spec: ModelSpec, steps: number, taskTokens: number, outputTokens: number, batch: boolean): { cost: number; total: number } {
+    const n = Math.max(1, steps);
+    const perStep = AGENT_STEP_TOKENS + (outputTokens + n * AGENT_STEP_OUTPUT) / n;
+    const cacheRead = n * AGENT_BASE_CONTEXT + (n - 1) * taskTokens + (perStep * (n - 1) * n) / 2;
+    const cacheWrite = taskTokens + (n - 1) * perStep;
+    const output = outputTokens + n * AGENT_STEP_OUTPUT;
+    const scale = this.calibration?.agent_scale?.[spec.id] ?? 1;
+    const cost = callCost(spec, { uncached: 0, cacheRead, cacheWrite5m: cacheWrite, cacheWrite1h: 0, output }, batch) * scale;
+    return { cost, total: Math.round((cacheRead + cacheWrite + output) * scale) };
   }
 
   /** Shared-prefix tokens (executor system prompt + shared brief) as billed by this model. */
@@ -199,6 +248,8 @@ export class CostModel {
     const prefix = this.prefixTokens(model);
     const p = spec.pricing;
     const uncached = (calls * prefix * p.input) / 1_000_000;
+    // Agent mode: each subagent manages its own cache inside its loop (already in the attempt estimate).
+    if (this.options.mode === "agent") return { cost: 0, uncached: 0, warm: 0, enabled: false };
     const cacheable = this.options.cache && prefix >= spec.minCacheableTokens;
     const warm = cacheable ? (calls * prefix * p.cacheRead) / 1_000_000 : uncached;
     if (!cacheable || calls < 2) return { cost: uncached, uncached, warm, enabled: false };

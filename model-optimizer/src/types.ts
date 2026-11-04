@@ -167,12 +167,14 @@ export interface Config {
   effort: Effort;
 }
 
-export type VerificationMethod = "self-check" | "judge" | "tests" | "human";
+export type VerificationMethod = "self-check" | "judge" | "dual-judge" | "tests" | "human";
 
 export interface Verification {
   method: VerificationMethod;
   /** Model used to judge the output (absent for self-check). */
   judge?: Config;
+  /** Independent second reviewer on a different model (dual-judge): both must pass. */
+  second_judge?: Config;
   /** Probability that a failed attempt is detected (and therefore escalated). */
   detection_rate: number;
   /** Recommend a human sign-off before downstream work relies on this output. */
@@ -190,6 +192,9 @@ export interface TokenEstimate {
   output: number;
   /** Thinking tokens (billed as output). */
   thinking: number;
+  /** Agent mode: tool-loop steps of one subagent run, and the run's total tokens (mostly cache reads). */
+  steps?: number;
+  total?: number;
 }
 
 export interface CandidateEval {
@@ -275,6 +280,12 @@ export interface Routing {
 }
 
 export interface RouterOptions {
+  /**
+   * "agent" (default): subsections run as Claude Code subagents on a subscription,
+   * so costs are API-equivalent estimates of usage. "api": one Messages API call
+   * per attempt, priced in dollars (used by `mopt run`).
+   */
+  mode: "agent" | "api";
   quality: QualityPreset;
   /** Allowed model ids, cheapest first is not required. */
   models: string[];
@@ -421,6 +432,8 @@ export interface CalibrationSnapshot {
   input_ratios: Record<string, number>;
   /** Learned output tokens per second per model. */
   throughput: Record<string, number>;
+  /** Agent mode: learned ratio of a subagent run's actual total tokens to the estimate, per model. */
+  agent_scale?: Record<string, number>;
   /** Number of ledger records the snapshot was built from. */
   samples: number;
 }
@@ -538,6 +551,8 @@ export interface ConfigStat {
   output_multiplier: number | null;
   /** Observed output tokens per second, or null. */
   tps: number | null;
+  /** Agent mode: actual total tokens of subagent runs divided by the estimate, or null. */
+  token_ratio?: number | null;
 }
 
 export interface LedgerStats {

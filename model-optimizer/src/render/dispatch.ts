@@ -1,7 +1,7 @@
 /** Claude Code dispatch sheet: instructions for an orchestrator session to run a plan with subagents. */
 import type { Config, RoutedPlan, Routing, Subsection } from "../types.ts";
 import { defaultCatalog } from "../catalog.ts";
-import { ARTIFACT_DIR, buildTaskPrompt } from "../prompts.ts";
+import { ARTIFACT_DIR, buildReviewPrompt, buildTaskPrompt } from "../prompts.ts";
 import { usd } from "../format.ts";
 
 export interface DispatchOptions {
@@ -28,17 +28,34 @@ function shortDescription(title: string): string {
   return out.join(" ");
 }
 
+const WORKER = "mopt-worker";
+const REVIEWER = "mopt-reviewer";
+
+function agentBlock(fields: Record<string, string>): string[] {
+  return ["```", ...Object.entries(fields).map(([k, v]) => `${k}: ${v}`), "```"];
+}
+
+function reviewers(r: Routing): { label: string; model: string; effort: string }[] {
+  const out: { label: string; model: string; effort: string }[] = [];
+  if (r.verification.judge) out.push({ label: "Reviewer", model: alias(r.verification.judge.model), effort: r.verification.judge.effort });
+  if (r.verification.second_judge) {
+    out.push({ label: "Second reviewer (different model)", model: alias(r.verification.second_judge.model), effort: r.verification.second_judge.effort });
+  }
+  return out;
+}
+
 function verifyText(r: Routing): string {
-  const j = r.verification.judge ? alias(r.verification.judge.model) : undefined;
   switch (r.verification.method) {
     case "tests":
-      return "tests. Run the project's tests, type-check or schema validation and confirm every acceptance criterion.";
+      return "run the project's mechanical checks (tests, type-check, schema validation) until they pass, then the reviewer subagent below must pass every acceptance criterion.";
+    case "dual-judge":
+      return "two independent reviewer subagents on different models must BOTH return VERDICT: PASS. Run the second only after the first passes.";
     case "judge":
-      return `judge (${j ?? "sonnet"}). Check each acceptance criterion yourself, or with a cheap reviewer subagent on the ${j ?? "sonnet"} model.`;
+      return "the reviewer subagent below must return VERDICT: PASS on every acceptance criterion.";
     case "human":
-      return "human. Ask a human to review the artifacts against the acceptance criteria.";
+      return "a human reviews the artifacts against the acceptance criteria.";
     default:
-      return "self-check. Trust the subagent's own PASS lines unless something looks wrong.";
+      return "self-check: accept only if every one of the subagent's own lines is PASS.";
   }
 }
 
@@ -54,20 +71,20 @@ export function renderDispatch(plan: RoutedPlan, opts: DispatchOptions = {}): st
   L.push(
     "## How to run this",
     "",
-    "You are the orchestrator. Carry out this plan with subagents, one subsection each, using the Agent tool.",
+    "You are the orchestrator. Carry out this plan with subagents, one subsection each, using the Agent tool. The quality bar is that no subsection is accepted with a known failure.",
     "",
-    "1. Run the waves in order.",
-    "2. Within a wave, launch every subagent in parallel, in ONE message containing several Agent tool calls.",
-    "3. Wait for the whole wave to finish before starting the next.",
-    "4. After each subagent returns, verify its artifacts against the acceptance criteria. A \"tests\" verification means running the project's tests, type-check or schema validation. \"judge\" means checking each criterion yourself, or with a cheap reviewer subagent on the judge model. \"self-check\" means trusting the subagent's own PASS lines unless something looks wrong.",
-    "5. On failure, re-dispatch the same prompt plus a \"Feedback on a previous attempt\" section listing what failed, on the next model in that subsection's escalation ladder.",
-    "6. Never run a subsection on a weaker model than the one assigned.",
-    "7. Ask a human to sign off any subsection flagged human-review before its dependents start.",
+    "1. Run the waves in order. Within a wave, launch every subagent in parallel, in ONE message containing several Agent tool calls; wait for the whole wave before starting the next.",
+    `2. Pass the \`model\` AND the \`effort\` given for each subsection on its Agent call. This plan explicitly asks for those effort levels. Use \`subagent_type: ${WORKER}\` (listed as \`model-optimizer:${WORKER}\` when the plugin is installed); if it is not available, use \`general-purpose\`, since every prompt is self-contained.`,
+    `3. Verify every subsection before anything depends on it, exactly as its "Verify" line says. Reviewers are separate subagents (\`${REVIEWER}\`, or \`general-purpose\` with the review prompt) on the model and effort given. Never review your own dispatch by assumption: a subsection is done only when every check and reviewer passes.`,
+    "4. On any failure, re-dispatch the same prompt plus a \"## Feedback on a previous attempt\" section quoting exactly what failed, on the next model in that subsection's escalation ladder, then verify again. If the ladder is exhausted, stop that branch and report it to the user; do not start its dependents.",
+    "5. Never run a subsection on a weaker model or a lower effort than assigned.",
+    "6. Get a human sign-off on any subsection marked \"Human review: required\" before its dependents start.",
+    "7. After each attempt, record the outcome with `mopt log` (commands at the end), including the token count and duration Claude Code reports for the subagent.",
     "",
   );
 
   L.push("## Summary", "");
-  L.push("| Wave | ID | Title | Model | Effort | Verification | Expected cost |", "| --- | --- | --- | --- | --- | --- | --- |");
+  L.push(`| Wave | ID | Title | Model | Effort | Verification | ${plan.options.mode === "agent" ? "Expected usage (API-eq.)" : "Expected cost"} |`, "| --- | --- | --- | --- | --- | --- | --- |");
   waves.forEach((w, i) => {
     for (const id of w) {
       const r = routes.get(id);
@@ -87,9 +104,17 @@ export function renderDispatch(plan: RoutedPlan, opts: DispatchOptions = {}): st
       const upstream = sub.inputs.filter((x) => x.from !== "project").map((x) => ({ artifact: x.artifact, from: x.from }));
       const prompt = buildTaskPrompt({ decomposition: dec, sub, route: r, upstream, mode: "agent" });
       L.push(`### ${id} - ${sub.title}`, "");
-      L.push("```", `description: ${shortDescription(sub.title)}`, "subagent_type: general-purpose", `model: ${r.agent_alias}`, "```", "");
+      L.push(...agentBlock({ description: shortDescription(sub.title), subagent_type: WORKER, model: r.agent_alias, effort: r.effort }), "");
       L.push("Prompt:", "", "````", prompt, "````", "");
       L.push(`Verify: ${verifyText(r)}`, "");
+      const revs = reviewers(r);
+      if (revs.length && r.verification.method !== "self-check") {
+        const review = buildReviewPrompt(dec, sub, r.verification.method === "tests");
+        for (const rv of revs) {
+          L.push(`${rv.label}:`, "", ...agentBlock({ description: `Review ${id}`, subagent_type: REVIEWER, model: rv.model, effort: rv.effort }), "");
+        }
+        L.push("Review prompt (same for every reviewer):", "", "````", review, "````", "");
+      }
       if (r.verification.human_review) L.push("Human review: required. Get a human sign-off before dependents start.", "");
       L.push(`If it fails: ${r.escalation.length ? r.escalation.map(cfg).join(", then ") : "no higher rung; report the failure to the user"}.`, "");
     }
@@ -111,7 +136,9 @@ export function renderDispatch(plan: RoutedPlan, opts: DispatchOptions = {}): st
     "",
     "```sh",
   );
-  for (const r of plan.routes) L.push(`mopt log --plan ${planPath} --id ${r.id} --model ${r.agent_alias} --effort ${r.effort} --result pass`);
+  for (const r of plan.routes) {
+    L.push(`mopt log --plan ${planPath} --id ${r.id} --model ${r.agent_alias} --effort ${r.effort} --result pass --total-tokens <subagent tokens> --duration-ms <duration>`);
+  }
   L.push("```", "");
   return L.join("\n");
 }

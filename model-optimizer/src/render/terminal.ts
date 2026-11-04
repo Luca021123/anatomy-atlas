@@ -260,7 +260,10 @@ export function renderPlan(plan: RoutedPlan, opts: TermOptions, detail: { verbos
       `${sch.waves.length} wave${sch.waves.length === 1 ? "" : "s"} · critical path ${sch.critical_path.join(" → ")} (${duration(sch.critical_path_s)}) · sequential ${duration(sch.sequential_s)} · ${sch.parallelism.toFixed(2)}x parallelism`,
     ),
   );
-  let cost = `${st.bold(usd(m.cost.expected_with_cache))} expected (with cache) · p50 ${usd(m.cost.p50)} · p90 ${usd(m.cost.p90)} · worst case ${usd(m.cost.worst_case)} · cache saves ${usd(m.cost.cache_saving)}`;
+  const agentMode = plan.options.mode === "agent";
+  let cost = agentMode
+    ? `${st.bold(usd(m.cost.expected_with_cache))} expected usage as Claude Code subagents (API-equivalent) · p50 ${usd(m.cost.p50)} · p90 ${usd(m.cost.p90)} · worst case ${usd(m.cost.worst_case)}`
+    : `${st.bold(usd(m.cost.expected_with_cache))} expected (with cache) · p50 ${usd(m.cost.p50)} · p90 ${usd(m.cost.p90)} · worst case ${usd(m.cost.worst_case)} · cache saves ${usd(m.cost.cache_saving)}`;
   if (m.cost.batch_saving_available > 0) cost += ` · batching could save ${usd(m.cost.batch_saving_available)} more (try --batch)`;
   out.push(labelled(st, "Cost", cost));
   const sv = m.savings;

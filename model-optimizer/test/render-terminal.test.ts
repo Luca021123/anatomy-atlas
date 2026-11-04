@@ -81,7 +81,7 @@ test("renderPlan lists every subsection and the savings line", () => {
   const out = renderPlan(plan, plain);
   for (const r of plan.routes) assert.ok(out.includes(r.id), r.id);
   assert.match(out, /Savings/);
-  assert.match(out, /56\.1%/);
+  assert.ok(out.includes(`${plan.metrics.savings.pct.toFixed(1)}%`), "savings percentage from the plan metrics");
   assert.match(out, /Model mix/);
   assert.match(out, /Opus 5\.5/);
   assert.ok(!out.includes("\x1b"));
@@ -212,7 +212,8 @@ test("live view non-interactive prints plain timestamped lines", () => {
   const text = f.text();
   assert.ok(!text.includes("\x1b"));
   assert.match(text, /\[00:00\] Run started/);
-  assert.match(text, /\[00:01\] S1 started: Opus 5\.5 @ medium/);
+  const r0e = plan.routes[0]?.effort ?? "medium";
+  assert.ok(text.includes(`[00:01] S1 started: Opus 5.5 @ ${r0e}`), `S1 started line with effort ${r0e}`);
   assert.match(text, /\[00:09\] S1 escalated → Opus 5\.5 @ medium/);
   assert.match(text, /\[00:10\] warning: slow response/);
   assert.match(text, /\[01:23\] S1 completed/);

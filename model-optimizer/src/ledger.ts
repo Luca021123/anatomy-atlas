@@ -35,7 +35,7 @@ export interface LedgerRecord {
   /** 0 for a first attempt, 1+ for escalations. */
   rung: number;
   pass: boolean;
-  est?: { input: number; output: number; cost: number };
+  est?: { input: number; output: number; cost: number; /** Agent mode: estimated total tokens of the subagent run. */ total?: number };
   actual?: {
     input: number;
     output: number;
@@ -44,6 +44,8 @@ export interface LedgerRecord {
     cache_write: number;
     cost: number;
     latency_s: number;
+    /** Agent mode: total tokens the subagent reported (Claude Code's usage summary). */
+    total_tokens?: number;
   };
 }
 
@@ -116,6 +118,10 @@ export class Ledger {
             ? round(median(withThinking.map((r) => (r.actual as NonNullable<LedgerRecord["actual"]>).output / ((r.actual as NonNullable<LedgerRecord["actual"]>).output - (r.actual as NonNullable<LedgerRecord["actual"]>).thinking))), 3)
             : null,
           tps: timed.length ? round(median(timed.map((r) => (r.actual?.output ?? 0) / (r.actual?.latency_s ?? 1))), 1) : null,
+          token_ratio: (() => {
+            const runs = rs.filter((r) => (r.actual?.total_tokens ?? 0) > 0 && (r.est?.total ?? 0) > 0);
+            return runs.length ? round(median(runs.map((r) => (r.actual?.total_tokens ?? 0) / (r.est?.total ?? 1))), 3) : null;
+          })(),
         };
       })
       .sort((a, b) => b.attempts - a.attempts);
@@ -176,6 +182,12 @@ export function calibrate(records: LedgerRecord[], catalog: Catalog): Calibratio
   for (const [model, rs] of groupBy(records, (r) => r.model)) {
     if (!catalog.has(model)) continue;
     const spec = catalog.get(model);
+    const agentRuns = rs.filter((r) => (r.actual?.total_tokens ?? 0) > 0 && (r.est?.total ?? 0) > 0);
+    if (agentRuns.length) {
+      const observed = median(agentRuns.map((r) => (r.actual?.total_tokens ?? 0) / (r.est?.total ?? 1)));
+      const n = agentRuns.length;
+      (snapshot.agent_scale ??= {})[spec.id] = round(1 + ((observed - 1) * n) / (n + MULTIPLIER_SHRINK_K), 3);
+    }
     const sized = rs.filter((r) => r.actual && r.est && r.est.input > 0);
     if (sized.length) {
       const observed = median(

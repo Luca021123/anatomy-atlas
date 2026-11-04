@@ -21,7 +21,7 @@ import { EventBus } from "./events.ts";
 import { runPlan } from "./executor/run.ts";
 import { duration, pct, usd } from "./format.ts";
 import { DEFAULT_LEDGER_PATH, Ledger } from "./ledger.ts";
-import { AnthropicClient, describeError, isAuthError } from "./llm.ts";
+import { AnthropicClient, describeError, isAuthError, isSdkMissing } from "./llm.ts";
 import { planHeuristically } from "./planner/heuristic.ts";
 import { planWithLlm } from "./planner/llm.ts";
 import { renderDispatch } from "./render/dispatch.ts";
@@ -45,7 +45,7 @@ import {
   type RunSummary,
 } from "./types.ts";
 
-const VERSION = "0.1.0";
+const VERSION = "0.2.0";
 
 class UsageError extends Error {}
 
@@ -108,7 +108,8 @@ Records one attempt in the outcome ledger, for work executed outside "mopt run"
 
   --effort <level>           Effort used (default: the plan's assigned effort)
   --rung <n>                 0 for the first attempt, 1+ for escalations (default 0)
-  --input-tokens <n> --output-tokens <n> --thinking-tokens <n> --cost <usd> --latency <s>
+  --total-tokens <n> --duration-ms <n>   What Claude Code reported for the subagent (calibrates agent mode)
+  --input-tokens <n> --output-tokens <n> --thinking-tokens <n> --cost <usd> --latency <s>   (API attempts)
   --ledger <file>            Outcome ledger (default ${DEFAULT_LEDGER_PATH})`,
   stats: `Usage: mopt stats [--ledger <file>] [--json]`,
   models: `Usage: mopt models [--json] [--catalog <file>]`,
@@ -118,7 +119,10 @@ Records one attempt in the outcome ledger, for work executed outside "mopt run"
 
 const ROUTING_HELP = `
 Routing options:
-  --quality <max|balanced|economy>  Quality floor preset (default max)
+  --mode <agent|api>         agent (default): Claude Code subagents on a subscription, costs as
+                             API-equivalent usage; api: one Messages API call per attempt, in dollars
+  --quality <max|balanced|economy>  Quality floor preset (default max: 99%, 99.5% for critical
+                             or mechanically checkable work, every output verified)
   --models <list>            Allowed models, e.g. haiku,sonnet,opus (default all)
   --efforts <list>           Allowed effort levels (default all)
   --baseline <model@effort>  Reference for savings (default opus@high)
@@ -138,6 +142,7 @@ Output options:
   --verbose                  Show the reasoning behind every assignment`;
 
 const routingOptions = {
+  mode: { type: "string" },
   quality: { type: "string" },
   models: { type: "string" },
   efforts: { type: "string" },
@@ -248,7 +253,7 @@ async function cmdPlan(args: string[]): Promise<number> {
     const progress = progressLine(`Planning with ${catalog.label(planner)}`);
     try {
       dec = await planWithLlm(input, {
-        client: new AnthropicClient({ fallbackModels: fallbackModels(catalog) }),
+        client: await AnthropicClient.create({ fallbackModels: fallbackModels(catalog) }),
         catalog,
         planner,
         context,
@@ -258,10 +263,13 @@ async function cmdPlan(args: string[]): Promise<number> {
       progress.done(`planned in ${dec.source.elapsed_s ?? 0}s for ${usd(dec.source.usage?.cost_usd ?? 0)}`);
     } catch (e) {
       progress.done("failed");
-      if (!isAuthError(e)) throw e;
+      if (!isAuthError(e) && !isSdkMissing(e)) throw e;
       process.stderr.write(
-        "mopt: no Claude API credentials were found (set ANTHROPIC_API_KEY or run `ant auth login`).\n" +
-          "      Falling back to the offline heuristic planner; its signal scores are keyword estimates.\n\n",
+        (isSdkMissing(e)
+          ? "mopt: the LLM planner needs the Anthropic SDK and an API key, which this install does not have.\n"
+          : "mopt: no Claude API credentials were found (set ANTHROPIC_API_KEY or run `ant auth login`).\n") +
+          "      Falling back to the offline heuristic planner; its signal scores are keyword estimates.\n" +
+          "      On a subscription, let Claude Code write the decomposition (the optimize skill) and use `mopt route`.\n\n",
       );
       dec = planHeuristically(input, title ? { title } : {});
     }
@@ -355,8 +363,13 @@ async function cmdRun(args: string[]): Promise<number> {
   const catalog = loadCatalog(v);
   if (!positionals[0]) throw new UsageError("run needs a plan file (from `mopt plan` or `mopt route`).");
   const json = JSON.parse(readFileSync(positionals[0], "utf8")) as Record<string, unknown>;
-  const plan: RoutedPlan =
-    "routes" in json && "metrics" in json ? (json as unknown as RoutedPlan) : route(DecompositionSchema.parse(json), v, catalog);
+  let plan: RoutedPlan =
+    "routes" in json && "metrics" in json ? (json as unknown as RoutedPlan) : route(DecompositionSchema.parse(json), { ...v, mode: "api" }, catalog);
+  if (plan.options.mode !== "api") {
+    // Executing on the API: re-cost the same decomposition as API calls, keeping the plan's other options.
+    process.stderr.write("Re-routing this plan for API execution (it was routed for Claude Code subagents).\n");
+    plan = routePlan({ decomposition: plan.decomposition, catalog, options: { ...plan.options, mode: "api" }, calibration: plan.calibration });
+  }
   const dryRun = v["dry-run"] === true;
   const seed = num(v.seed, "seed") ?? Math.floor(Math.random() * 1_000_000);
   const budget = num(v.budget, "budget");
@@ -405,7 +418,7 @@ async function cmdRun(args: string[]): Promise<number> {
       catalog,
       bus,
       outDir,
-      ...(dryRun ? {} : { client: new AnthropicClient({ fallbackModels: fallbackModels(catalog) }) }),
+      ...(dryRun ? {} : { client: await AnthropicClient.create({ fallbackModels: fallbackModels(catalog) }) }),
       ...(concurrency !== undefined ? { concurrency } : {}),
       ...(budget !== undefined ? { budgetUsd: budget } : {}),
       dryRun,
@@ -503,6 +516,8 @@ function cmdLog(args: string[]): number {
     "thinking-tokens": { type: "string" },
     cost: { type: "string" },
     latency: { type: "string" },
+    "total-tokens": { type: "string" },
+    "duration-ms": { type: "string" },
     ledger: { type: "string" },
     catalog: { type: "string" },
   });
@@ -519,6 +534,8 @@ function cmdLog(args: string[]): number {
   if (!spec.efforts.includes(effort)) throw new UsageError(`${spec.name} does not support effort "${effort}".`);
   const ceiling = spec.ceiling[effort];
   const out = num(v["output-tokens"], "output-tokens");
+  const totalTokens = num(v["total-tokens"], "total-tokens");
+  const durationMs = num(v["duration-ms"], "duration-ms");
   const ledger = new Ledger(typeof v.ledger === "string" ? v.ledger : DEFAULT_LEDGER_PATH);
   ledger.append({
     v: 1,
@@ -534,6 +551,23 @@ function cmdLog(args: string[]): number {
     effort,
     rung: num(v.rung, "rung") ?? 0,
     pass: v.result === "pass",
+    ...(routing.model === spec.id && routing.effort === effort && routing.tokens.total
+      ? { est: { input: routing.tokens.prefix + routing.tokens.input, output: routing.tokens.output, cost: routing.cost.first_attempt / Math.max(1, routing.repetitions), total: routing.tokens.total } }
+      : {}),
+    ...(out === undefined && (totalTokens !== undefined || durationMs !== undefined)
+      ? {
+          actual: {
+            input: 0,
+            output: 0,
+            thinking: 0,
+            cache_read: 0,
+            cache_write: 0,
+            cost: 0,
+            latency_s: (durationMs ?? 0) / 1000,
+            ...(totalTokens !== undefined ? { total_tokens: totalTokens } : {}),
+          },
+        }
+      : {}),
     ...(out !== undefined
       ? {
           actual: {
@@ -584,6 +618,10 @@ function fallbackModels(catalog: Catalog): Set<string> {
 
 function routerOptions(v: Values, catalog: Catalog): Partial<RouterOptions> {
   const o: Partial<RouterOptions> = {};
+  if (typeof v.mode === "string") {
+    if (v.mode !== "agent" && v.mode !== "api") throw new UsageError("--mode must be agent or api.");
+    o.mode = v.mode;
+  }
   if (typeof v.quality === "string") {
     if (!(QUALITY_PRESETS as readonly string[]).includes(v.quality)) throw new UsageError(`--quality must be one of ${QUALITY_PRESETS.join(", ")}.`);
     o.quality = v.quality as QualityPreset;

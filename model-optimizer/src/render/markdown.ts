@@ -27,7 +27,7 @@ export function renderPlanMarkdown(plan: RoutedPlan): string {
   L.push(`# ${dec.title}`, "");
   const q = m.quality;
   L.push(
-    `Routing this plan is expected to cost ${usd(m.cost.expected_with_cache)} against ${usd(m.baselines[0]?.cost ?? m.cost.expected_with_cache + m.savings.usd)} for the reference baseline (${m.savings.vs}), a saving of ${usd(m.savings.usd)} (${m.savings.pct.toFixed(1)}%); in 90% of simulated runs it costs at most ${usd(m.cost.p90)}. ` +
+    `Routing this plan is expected to ${plan.options.mode === "agent" ? "use the API-equivalent of" : "cost"} ${usd(m.cost.expected_with_cache)} against ${usd(m.baselines[0]?.cost ?? m.cost.expected_with_cache + m.savings.usd)} for the reference baseline (${m.savings.vs}), a saving of ${usd(m.savings.usd)} (${m.savings.pct.toFixed(1)}%); in 90% of simulated runs it costs at most ${usd(m.cost.p90)}. ` +
       `Mean final success probability is ${pct(q.mean_p_final)} (minimum ${pct(q.min_p_final)}), with ${q.below_floor.length} of ${m.subsections} subsections below their quality floor. ` +
       `The critical path takes about ${duration(m.schedule.critical_path_s)}.`,
     "",

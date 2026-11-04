@@ -11,8 +11,7 @@
  *  - models that support it get the server-side refusal fallback
  *    (`fallbacks: "default"`, beta server-side-fallback-2026-07-01).
  */
-import Anthropic from "@anthropic-ai/sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { z } from "zod";
 import { SERVER_FALLBACK_BETA } from "./catalog.ts";
 import type { Effort, UsageTotals } from "./types.ts";
@@ -66,34 +65,51 @@ export class RefusalError extends Error {
   }
 }
 
+// The SDK is loaded only when an API client is created, so routing, dispatch and
+// logging work without it. Errors are therefore recognised by status and class
+// name rather than with instanceof.
+const statusOf = (e: unknown): number | undefined =>
+  typeof e === "object" && e !== null && typeof (e as { status?: unknown }).status === "number" ? (e as { status: number }).status : undefined;
+const nameOf = (e: unknown): string => (e instanceof Error ? e.constructor.name || e.name : "");
+
 /** Is an API error worth retrying (rate limit, overload, server or network error)? */
 export function isRetryable(error: unknown): boolean {
-  if (error instanceof Anthropic.RateLimitError) return true;
-  if (error instanceof Anthropic.InternalServerError) return true;
-  if (error instanceof Anthropic.APIConnectionError) return true;
-  if (error instanceof Anthropic.APIError) return typeof error.status === "number" && (error.status === 429 || error.status >= 500);
-  return false;
+  const status = statusOf(error);
+  if (status !== undefined) return status === 429 || status >= 500;
+  return /APIConnection(Timeout)?Error/.test(nameOf(error));
 }
 
 /** True when the failure means no usable credentials (missing, invalid or not permitted). */
 export function isAuthError(error: unknown): boolean {
-  if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) return true;
+  const status = statusOf(error);
+  if (status === 401 || status === 403) return true;
+  if (/^(AuthenticationError|PermissionDeniedError)$/.test(nameOf(error))) return true;
   return error instanceof Error && /could not resolve authentication method|api[_ ]?key/i.test(error.message);
 }
 
-/** Human-readable description of an API failure, most specific class first. */
+/** True when the optional Anthropic SDK is not installed (e.g. the zero-install plugin bundle). */
+export function isSdkMissing(error: unknown): boolean {
+  return error instanceof Error && /Cannot find (package|module) '@anthropic-ai\/sdk/.test(error.message);
+}
+
+/** Human-readable description of an API failure, most specific first. */
 export function describeError(error: unknown): string {
   if (error instanceof RefusalError) return error.message;
-  if (error instanceof Anthropic.AuthenticationError || (error instanceof Error && /could not resolve authentication method/i.test(error.message))) {
+  const message = error instanceof Error ? error.message : String(error);
+  const status = statusOf(error);
+  if (status === 401 || /could not resolve authentication method/i.test(message)) {
     return "Authentication failed: set ANTHROPIC_API_KEY (or log in with `ant auth login`).";
   }
-  if (error instanceof Anthropic.PermissionDeniedError) return `Permission denied: ${error.message}`;
-  if (error instanceof Anthropic.NotFoundError) return `Not found (check the model id): ${error.message}`;
-  if (error instanceof Anthropic.BadRequestError) return `Bad request: ${error.message}`;
-  if (error instanceof Anthropic.RateLimitError) return "Rate limited: the request was retried and still failed; lower --concurrency or try later.";
-  if (error instanceof Anthropic.APIConnectionError) return `Could not reach the API: ${error.message}`;
-  if (error instanceof Anthropic.APIError) return `API error ${error.status ?? ""}: ${error.message}`;
-  return error instanceof Error ? error.message : String(error);
+  if (status === 403) return `Permission denied: ${message}`;
+  if (status === 404) return `Not found (check the model id): ${message}`;
+  if (status === 400) return `Bad request: ${message}`;
+  if (status === 429) return "Rate limited: the request was retried and still failed; lower --concurrency or try later.";
+  if (/APIConnection(Timeout)?Error/.test(nameOf(error))) return `Could not reach the API: ${message}`;
+  if (status !== undefined) return `API error ${status}: ${message}`;
+  if (/Cannot find (package|module) '@anthropic-ai\/sdk/.test(message)) {
+    return "API mode needs the Anthropic SDK: run `npm install` in the model-optimizer folder (the plugin's routing and dispatch work without it).";
+  }
+  return message;
 }
 
 export interface AnthropicClientOptions {
@@ -102,14 +118,25 @@ export interface AnthropicClientOptions {
   maxRetries?: number;
 }
 
+type OutputFormatFactory = <T>(schema: z.ZodType<T>) => unknown;
+
 export class AnthropicClient implements LlmClient {
   private readonly client: Anthropic;
   private readonly fallbackModels: ReadonlySet<string>;
+  private readonly outputFormat: OutputFormatFactory;
 
-  constructor(options: AnthropicClientOptions = {}, client?: Anthropic) {
-    // Credentials resolve from ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN or an `ant auth login` profile.
-    this.client = client ?? new Anthropic({ maxRetries: options.maxRetries ?? 4 });
+  private constructor(client: Anthropic, outputFormat: OutputFormatFactory, options: AnthropicClientOptions) {
+    this.client = client;
+    this.outputFormat = outputFormat;
     this.fallbackModels = options.fallbackModels ?? new Set();
+  }
+
+  /** Loads the SDK on first use. Credentials resolve from ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN or an `ant auth login` profile. */
+  static async create(options: AnthropicClientOptions = {}): Promise<AnthropicClient> {
+    const sdk = await import("@anthropic-ai/sdk");
+    const helpers = await import("@anthropic-ai/sdk/helpers/beta/zod");
+    const client = new sdk.default({ maxRetries: options.maxRetries ?? 4 });
+    return new AnthropicClient(client, helpers.betaZodOutputFormat as unknown as OutputFormatFactory, options);
   }
 
   private params(req: LlmRequest) {
@@ -144,7 +171,7 @@ export class AnthropicClient implements LlmClient {
   async structured<T>(req: StructuredRequest<T>): Promise<LlmResult & { parsed: T }> {
     const started = performance.now();
     const stream = this.client.beta.messages.stream(
-      { ...this.params(req), output_config: { effort: req.effort, format: betaZodOutputFormat(req.schema) } },
+      { ...this.params(req), output_config: { effort: req.effort, format: this.outputFormat(req.schema) as ReturnType<typeof import("@anthropic-ai/sdk/helpers/beta/zod").betaZodOutputFormat<z.ZodType<T>>> } },
       { signal: req.signal },
     );
     if (req.onText) {

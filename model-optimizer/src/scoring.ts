@@ -14,20 +14,38 @@ import type { Category, DifficultyBreakdown, QualityPreset, SignalKey, Signals }
 export const SLOPE = 2.5;
 /** A configuration's ceiling is the difficulty at which first-pass success is 90%. */
 export const LOGIT_AT_CEILING = Math.log(9);
-const P_MAX = 0.995;
+/** No single attempt is ever treated as certain. */
+export const P_MAX = 0.995;
 
 export function successProbability(ceiling: number, level: number): number {
   const z = SLOPE * (ceiling - level) + LOGIT_AT_CEILING;
   return Math.min(P_MAX, 1 / (1 + Math.exp(-z)));
 }
 
-/** Minimum probability of a correct final result, before the criticality adjustment. */
-export const QUALITY_FLOOR_BASE: Record<QualityPreset, number> = { max: 0.95, balanced: 0.92, economy: 0.85 };
+/**
+ * Minimum probability of a correct final result. "max" is the default: 99% for
+ * everything, and 99.5% wherever it is reachable cheaply or matters most - work
+ * that can be checked mechanically, and critical work (criticality 4-5).
+ */
+export const QUALITY_FLOOR_BASE: Record<QualityPreset, number> = { max: 0.99, balanced: 0.95, economy: 0.9 };
+export const MAX_PRESET_STRICT_FLOOR = 0.995;
 /** Minimum first-attempt success: the plan never budgets on a model that will probably fail. */
-export const FIRST_PASS_MIN: Record<QualityPreset, number> = { max: 0.85, balanced: 0.75, economy: 0.6 };
-export const CRITICALITY_ADJUST = [-0.04, -0.02, 0, 0.025, 0.04];
-/** Probability that verification catches a bad output, by verifiability score. */
+export const FIRST_PASS_MIN: Record<QualityPreset, number> = { max: 0.9, balanced: 0.85, economy: 0.75 };
+/** Criticality adjustment for the balanced and economy presets. */
+export const CRITICALITY_ADJUST = [-0.02, -0.01, 0, 0.02, 0.03];
+/** Probability that one check catches a bad output, by verifiability score. */
 export const DETECTION_BY_VERIFIABILITY = [0.35, 0.55, 0.7, 0.85, 0.95];
+/**
+ * How correlated two independent checks' misses are (0 = independent,
+ * 1 = identical). Two reviewers on different models catch more than one, but
+ * they share blind spots, so the second check counts at (1 - correlation).
+ */
+export const CHECK_CORRELATION = 0.4;
+
+/** Detection rate of two checks that must both pass. */
+export function combinedDetection(first: number, second: number): number {
+  return 1 - (1 - first) * (1 - second * (1 - CHECK_CORRELATION));
+}
 /** Probability that a judge wrongly rejects a good output (causes an unnecessary escalation). */
 export const JUDGE_FALSE_REJECT = 0.03;
 /** An escalation must raise the capability ceiling by at least this much. */
@@ -36,7 +54,8 @@ export const ESCALATION_STEP = 0.4;
 export const BATCH_LATENCY_S = 3600;
 export const MECHANICAL_CATEGORIES = new Set<Category>(["code_generation", "code_edit", "testing", "data_analysis", "ops", "extraction", "transformation"]);
 
-export function qualityFloor(preset: QualityPreset, criticality: number): number {
+export function qualityFloor(preset: QualityPreset, criticality: number, verifiability = 3): number {
+  if (preset === "max") return criticality >= 4 || verifiability >= 4 ? MAX_PRESET_STRICT_FLOOR : QUALITY_FLOOR_BASE.max;
   const adj = CRITICALITY_ADJUST[Math.min(5, Math.max(1, criticality)) - 1] ?? 0;
   return round(Math.min(0.99, Math.max(0.5, QUALITY_FLOOR_BASE[preset] + adj)), 4);
 }

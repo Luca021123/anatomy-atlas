@@ -31,6 +31,14 @@ export const JUDGE_SYSTEM_PROMPT = `You are a meticulous reviewer. You decide wh
 
 Judge only against the stated acceptance criteria and required outputs. Be strict about correctness and completeness, and lenient about wording and style. Do not reward length. A criterion is met only if the deliverable itself shows it is met; a claim in the author's notes is not evidence. If a required artifact is missing or truncated, the deliverable fails.`;
 
+/** The executor's working rules, for subagents (in API mode they are the system prompt). */
+export const AGENT_GROUND_RULES = [
+  "Do exactly this subsection: do not redo upstream work or start downstream work. If an upstream artifact looks wrong, say so, then do your best with it.",
+  "The acceptance criteria are the definition of done. Check your work against every one before you finish, and run any tests or checks that apply.",
+  "Keep names, types, file paths and terminology identical to the upstream artifacts and the project brief.",
+  "Never leave placeholders such as \"rest unchanged\" or \"TODO\". If information is missing, make the smallest reasonable assumption and state it.",
+];
+
 /** The shared brief, placed after the system prompt so it is part of the cached prefix. */
 export function projectBrief(dec: Decomposition): string {
   const lines = [`# Project brief: ${dec.title}`, "", `Goal: ${dec.goal}`];
@@ -79,7 +87,7 @@ export function artifactPath(name: string): string {
 export function buildTaskPrompt(args: TaskPromptArgs): string {
   const { decomposition: dec, sub, route, upstream, feedback, mode } = args;
   const out: string[] = [];
-  if (mode === "agent") out.push(projectBrief(dec), "");
+  if (mode === "agent") out.push(projectBrief(dec), "", "## Ground rules", ...AGENT_GROUND_RULES.map((r) => `- ${r}`), "");
   out.push(`# Your subsection: ${sub.id} - ${sub.title}`, "", sub.description.trim(), "");
 
   out.push("## Inputs");
@@ -147,6 +155,32 @@ export function buildJudgePrompt(sub: Subsection, deliverable: string): string {
     "</deliverable>",
     "",
     "Assess each acceptance criterion in order. The deliverable passes only if every criterion is met and every required output is present and complete. In feedback, list concretely what must change for a retry to pass.",
+  ].join("\n");
+}
+
+/** A reviewer subagent's prompt (agent mode): it reads the artifact files instead of an inlined deliverable. */
+export function buildReviewPrompt(dec: Decomposition, sub: Subsection, mechanical: boolean): string {
+  return [
+    `# Independent review: ${sub.id} - ${sub.title}`,
+    "",
+    JUDGE_SYSTEM_PROMPT,
+    "",
+    `Project: ${dec.title}. ${dec.goal}`,
+    "",
+    "## What was asked",
+    sub.description.trim(),
+    "",
+    "## Deliverable to review",
+    ...sub.outputs.map((o) => `- \`${o.name}\` (${o.format}) at \`${artifactPath(o.name)}\`, plus any project files it lists`),
+    "",
+    "## Acceptance criteria",
+    ...sub.acceptance_criteria.map((c, i) => `${i + 1}. ${c}`),
+    "",
+    ...(mechanical
+      ? ["Run every mechanical check that applies (tests, type-check, lint, schema validation) and report the results. A failing check fails the review.", ""]
+      : []),
+    "## Reply format",
+    "One line per criterion: PASS or FAIL, the criterion, and the evidence. Then a line `VERDICT: PASS` or `VERDICT: FAIL`. If it fails, a line starting `FEEDBACK:` that says exactly what must change for a retry to pass.",
   ].join("\n");
 }
 

@@ -71,8 +71,8 @@ function makePlan(extra: Partial<DecompositionInput> = {}, subsOverride?: Decomp
 type Behaviour = {
   /** Decide the task response for a subsection id and attempt number (1-based per subsection). */
   task?: (id: string, attempt: number, req: LlmRequest) => string | Error | undefined;
-  /** Decide the judge verdict. */
-  judge?: (id: string, attempt: number) => boolean;
+  /** Decide the judge verdict (attempt counts judge calls per subsection); an Error makes the judge call fail. */
+  judge?: (id: string, attempt: number, req: LlmRequest) => boolean | Error;
 };
 
 class FakeClient implements LlmClient {
@@ -111,7 +111,9 @@ class FakeClient implements LlmClient {
     const n = (this.judged.get(id) ?? 0) + 1;
     this.judged.set(id, n);
     this.calls.push({ kind: "structured", id, req });
-    const pass = this.behaviour.judge?.(id, n) ?? true;
+    const decision = this.behaviour.judge?.(id, n, req) ?? true;
+    if (decision instanceof Error) throw decision;
+    const pass = decision;
     const parsed = {
       criteria: [{ criterion: "criterion 1", met: pass, reason: pass ? "ok" : "endpoint /bookings is missing" }],
       pass,
@@ -292,4 +294,43 @@ test("dry runs are reproducible for a seed", async () => {
   const b = await runPlan({ plan, catalog: defaultCatalog, bus: new EventBus(), outDir: tmp(), dryRun: true, speed: 1e7, seed: 42 });
   assert.equal(a.totals.spent_usd, b.totals.spent_usd);
   assert.deepEqual(a.states.map((s) => s.attempts.length), b.states.map((s) => s.attempts.length));
+});
+
+test("dual review: the second, different-model reviewer must also pass", async () => {
+  const plan = makePlan();
+  const route = plan.routes.find((r) => r.id === "S1");
+  assert.equal(route?.verification.method, "dual-judge");
+  const second = route?.verification.second_judge?.model;
+  assert.ok(second && second !== route?.verification.judge?.model);
+  // First reviewer passes everything; the second rejects S1's first attempt.
+  const client = new FakeClient(plan, { judge: (id, n, req) => !(id === "S1" && n === 2 && req.model === second) });
+  const { summary } = await run(plan, client);
+  const s1 = summary.states.find((s) => s.id === "S1");
+  assert.equal(s1?.attempts[0]?.status, "fail");
+  assert.match(s1?.attempts[0]?.verdict?.judge_model ?? "", / \+ /);
+  assert.equal(s1?.status, "done");
+  assert.equal(client.calls.filter((c) => c.kind === "structured" && c.id === "S1").length >= 3, true);
+});
+
+test("max preset: when verification cannot run, the subsection stops and nothing builds on it", async () => {
+  const plan = makePlan();
+  assert.equal(plan.options.quality, "max");
+  const client = new FakeClient(plan, { judge: (id) => (id === "S1" ? new Error("judge overloaded") : true) });
+  const { summary, events } = await run(plan, client);
+  const s1 = summary.states.find((s) => s.id === "S1");
+  assert.equal(s1?.status, "failed");
+  assert.equal(s1?.attempts.length, 1, "no further rungs: retrying the producer cannot fix a broken verifier");
+  assert.equal(s1?.attempts[0]?.status, "error");
+  assert.deepEqual(summary.states.slice(1).map((s) => s.status), ["skipped", "skipped"]);
+  assert.ok(events.some((e) => e.type === "warning" && /Verification could not run/.test(e.message)));
+});
+
+test("balanced preset: a broken verifier is accepted but flagged as unverified", async () => {
+  const decomposition = makePlan().decomposition;
+  const plan = routePlan({ decomposition, options: { quality: "balanced" } });
+  const client = new FakeClient(plan, { judge: (id) => (id === "S2" ? new Error("judge overloaded") : true) });
+  const { summary } = await run(plan, client);
+  const s2 = summary.states.find((s) => s.id === "S2");
+  assert.equal(s2?.status, "done");
+  assert.match(s2?.attempts[0]?.verdict?.feedback ?? "", /UNVERIFIED/);
 });

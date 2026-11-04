@@ -43,13 +43,22 @@ test("qualityFloor is ordered max > balanced > economy for every criticality", (
   }
 });
 
-test("qualityFloor rises with criticality and never exceeds 0.99", () => {
-  for (const preset of QUALITY_PRESETS) {
+test("qualityFloor: max is 99% everywhere and 99.5% for critical or mechanically checkable work", () => {
+  for (let c = 1; c <= 5; c++) {
+    for (let v = 1; v <= 5; v++) {
+      const f = qualityFloor("max", c, v);
+      assert.equal(f, c >= 4 || v >= 4 ? 0.995 : 0.99, `max c=${c} v=${v}`);
+    }
+  }
+});
+
+test("qualityFloor: balanced and economy rise with criticality and stay below max", () => {
+  for (const preset of ["balanced", "economy"] as const) {
     let prev = 0;
     for (let c = 1; c <= 5; c++) {
       const f = qualityFloor(preset, c);
       assert.ok(f > prev, `${preset} criticality ${c}`);
-      assert.ok(f <= 0.99);
+      assert.ok(f < qualityFloor("max", c));
       prev = f;
     }
   }

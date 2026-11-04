@@ -20,6 +20,7 @@ import { pct, usd } from "./format.ts";
 import { computeMetrics, planCache } from "./metrics.ts";
 import {
   BATCH_LATENCY_S,
+  combinedDetection,
   DETECTION_BY_VERIFIABILITY,
   difficulty,
   ESCALATION_STEP,
@@ -48,6 +49,7 @@ import type {
 import { EFFORTS } from "./types.ts";
 
 export const DEFAULT_ROUTER_OPTIONS: RouterOptions = {
+  mode: "agent",
   quality: "max",
   models: [],
   efforts: [...EFFORTS],
@@ -118,7 +120,7 @@ export function routePlan(input: RouteInput): RoutedPlan {
   if (fatal.length) throw new PlanError(fatal.map((i) => i.message).join("\n"), graph.issues);
 
   const dec = graph.decomposition;
-  const costs = new CostModel(catalog, dec, { cache: options.cache, systemPromptTokens: options.systemPromptTokens }, calibration);
+  const costs = new CostModel(catalog, dec, { cache: options.cache, systemPromptTokens: options.systemPromptTokens, mode: options.mode }, calibration);
   const ctx: Context = { catalog, options, costs, configs: catalog.configs(options.models, options.efforts), calibration };
 
   const routes = dec.subsections.map((sub) => routeSubsection(sub, ctx));
@@ -169,7 +171,7 @@ export function routePlan(input: RouteInput): RoutedPlan {
 function routeSubsection(sub: Subsection, ctx: Context): Routing {
   const { catalog, options, costs } = ctx;
   const diff = difficulty(sub.signals, ctx.calibration.category_offsets[sub.category] ?? 0);
-  const floor = qualityFloor(options.quality, sub.signals.criticality);
+  const floor = qualityFloor(options.quality, sub.signals.criticality, sub.signals.verifiability);
   const firstMin = FIRST_PASS_MIN[options.quality];
   const batchEligible = !sub.latency_sensitive && sub.repetitions >= options.batchMinRepetitions;
   const batch = batchEligible && options.batch;
@@ -284,7 +286,9 @@ function evaluate(
   const { catalog, costs, options } = ctx;
   const ladder = buildLadder({ model: first.model, effort: first.effort }, ladderOrder, ctx);
   const usesJudge = verification.method !== "self-check" && verification.judge !== undefined;
-  const judge = usesJudge && verification.judge ? costs.judge(sub, verification.judge, { batch }) : { cost: 0, latency_s: 0 };
+  const judgeA = usesJudge && verification.judge ? costs.judge(sub, verification.judge, { batch }) : { cost: 0, latency_s: 0 };
+  const judgeB = usesJudge && verification.second_judge ? costs.judge(sub, verification.second_judge, { batch }) : { cost: 0, latency_s: 0 };
+  const judge = { cost: judgeA.cost + judgeB.cost, latency_s: judgeA.latency_s + judgeB.latency_s };
   const d = verification.detection_rate;
   const waves = Math.ceil(sub.repetitions / Math.max(1, options.concurrency));
 
@@ -365,12 +369,14 @@ function buildLadder(first: Config, ladderOrder: Config[], ctx: Context): Config
 }
 
 function chooseVerification(sub: Subsection, level: number, ctx: Context): Verification {
-  const { catalog, costs } = ctx;
+  const { catalog, costs, options } = ctx;
   const v = sub.signals.verifiability;
   const c = sub.signals.criticality;
   const base = DETECTION_BY_VERIFIABILITY[v - 1] ?? 0.7;
   const humanReview = c === 5 || (c >= 4 && v <= 2);
-  if (c <= 2 && level <= 2.2) {
+  const strict = options.quality === "max";
+  // Outside the max preset, easy low-stakes work may check itself. Under max, every output is verified.
+  if (!strict && c <= 2 && level <= 2.2) {
     return {
       method: "self-check",
       detection_rate: round(base * 0.5, 3),
@@ -382,25 +388,48 @@ function chooseVerification(sub: Subsection, level: number, ctx: Context): Verif
   const judgeConfigs = ctx.configs
     .filter((cfg) => cfg.effort === "low" || cfg.effort === "medium" || cfg.effort === "high")
     .sort((a, b) => costs.judge(sub, a).cost - costs.judge(sub, b).cost);
-  const capable = judgeConfigs.find((cfg) => catalog.get(cfg.model).ceiling[cfg.effort] >= need);
+  const ceilingOf = (cfg: Config) => catalog.get(cfg.model).ceiling[cfg.effort];
+  const strongest = (list: Config[]) =>
+    list.reduce<Config | undefined>((best, cfg) => (!best || ceilingOf(cfg) > ceilingOf(best) ? cfg : best), undefined);
   const judge =
-    capable ??
-    judgeConfigs.reduce<Config | undefined>(
-      (best, cfg) => (!best || catalog.get(cfg.model).ceiling[cfg.effort] > catalog.get(best.model).ceiling[best.effort] ? cfg : best),
-      undefined,
-    ) ??
+    judgeConfigs.find((cfg) => ceilingOf(cfg) >= need) ??
+    strongest(judgeConfigs) ??
     ({ model: catalog.models[0]?.id ?? "claude-haiku-5-5", effort: "medium" } as Config);
-  const strength = catalog.get(judge.model).ceiling[judge.effort] >= level ? 1 : 0.92;
+  const strength = (cfg: Config) => (ceilingOf(cfg) >= level ? 1 : 0.92);
   const mechanical = v >= 4 && MECHANICAL_CATEGORIES.has(sub.category);
   const judgeName = catalog.label(judge);
+
+  if (mechanical) {
+    // Mechanical checks catch most failures; the judge covers the criteria tests do not.
+    return {
+      method: "tests",
+      judge,
+      detection_rate: round(combinedDetection(base, 0.6 * strength(judge)), 3),
+      human_review: humanReview,
+      note: `Run the mechanical checks (tests, type-check, schema) until they pass, and have ${judgeName} check every acceptance criterion.`,
+    };
+  }
+  // Under max, critical or hard-to-check work gets a second, independent reviewer on a different model.
+  if (strict && (c >= 4 || v <= 2)) {
+    const others = judgeConfigs.filter((cfg) => cfg.model !== judge.model);
+    const second = others.find((cfg) => ceilingOf(cfg) >= need) ?? strongest(others);
+    if (second) {
+      return {
+        method: "dual-judge",
+        judge,
+        second_judge: second,
+        detection_rate: round(combinedDetection(base * strength(judge), base * strength(second)), 3),
+        human_review: humanReview,
+        note: `Two independent reviewers on different models, ${judgeName} and ${catalog.label(second)}, must both pass every acceptance criterion.`,
+      };
+    }
+  }
   return {
-    method: mechanical ? "tests" : "judge",
+    method: "judge",
     judge,
-    detection_rate: round(base * strength, 3),
+    detection_rate: round(base * strength(judge), 3),
     human_review: humanReview,
-    note: mechanical
-      ? `Run the mechanical checks (tests, type-check, schema) and have ${judgeName} check the acceptance criteria.`
-      : `${judgeName} checks the output against each acceptance criterion and returns a structured verdict.`,
+    note: `${judgeName} checks the output against each acceptance criterion and returns a structured verdict.`,
   };
 }
 

@@ -84,6 +84,8 @@ interface Unit {
 interface AttemptOutcome {
   record: AttemptRecord;
   artifacts: Record<string, string>;
+  /** Stop this unit's ladder: retrying cannot help (e.g. verification itself is unavailable). */
+  halt?: string;
 }
 
 class FatalRunError extends Error {}
@@ -94,9 +96,11 @@ export async function runPlan(opts: RunOptions): Promise<RunSummary> {
   const dec = plan.decomposition;
   const subs = new Map(dec.subsections.map((s) => [s.id, s]));
   const routes = new Map(plan.routes.map((r) => [r.id, r]));
-  const costs = new CostModel(catalog, dec, { cache: plan.options.cache, systemPromptTokens: plan.options.systemPromptTokens }, plan.calibration);
+  const costs = new CostModel(catalog, dec, { cache: plan.options.cache, systemPromptTokens: plan.options.systemPromptTokens, mode: "api" }, plan.calibration);
   const semaphore = new Semaphore(Math.max(1, opts.concurrency ?? plan.options.concurrency));
   const speed = Math.max(1, opts.speed ?? 25);
+  /** Max preset: every output must pass verification; nothing is ever accepted unverified. */
+  const strict = plan.options.quality === "max";
   const order = plan.metrics.schedule.waves.flat();
   const startedMs = Date.now();
   const startedAt = now();
@@ -282,6 +286,7 @@ export async function runPlan(opts: RunOptions): Promise<RunSummary> {
     let status: AttemptStatus = "error";
     let verdict: Verdict | undefined;
     let artifacts: Record<string, string> = {};
+    let halt: string | undefined;
     if (result) {
       const parsed = parseArtifacts(result.text, sub.outputs.map((o) => o.name));
       artifacts = parsed.artifacts;
@@ -304,48 +309,73 @@ export async function runPlan(opts: RunOptions): Promise<RunSummary> {
         };
       } else {
         state.status = "verifying";
-        const judge = route.verification.judge;
-        const jspec = catalog.get(judge.model);
-        bus.emit({ type: "subsection.verifying", at: now(), id: sub.id, attempt: attemptNo, judge_model: jspec.id });
+        // Every reviewer must pass. Under dual-judge, the second (different-model) reviewer runs only if the first passes.
+        const reviewers = [route.verification.judge, route.verification.second_judge].filter((j): j is Config => j !== undefined);
+        const failed: string[] = [];
+        const feedbacks: string[] = [];
+        let judgeCostTotal = 0;
+        let scoreMin = 1;
+        let pass = true;
+        const judgeModels: string[] = [];
         try {
-          const j = await client.structured({
-            model: jspec.id,
-            effort: judge.effort,
-            maxTokens: 16_000,
-            system: [{ text: JUDGE_SYSTEM_PROMPT }],
-            user: buildJudgePrompt(sub, result.text),
-            schema: VerdictSchema,
-            fallbacks: opts.fallbacks !== false && jspec.serverFallback,
-            ...(opts.signal ? { signal: opts.signal } : {}),
-          });
-          const judgeCost = priceUsage(jspec, j.usage, "5m");
-          addUsage(tokens, j.usage);
-          cost += judgeCost;
-          const met = j.parsed.criteria.filter((c) => c.met).length;
-          const pass = j.parsed.pass && j.parsed.criteria.every((c) => c.met);
+          for (const [k, judge] of reviewers.entries()) {
+            const jspec = catalog.get(judge.model);
+            bus.emit({ type: "subsection.verifying", at: now(), id: sub.id, attempt: attemptNo, judge_model: jspec.id });
+            const j = await client.structured({
+              model: jspec.id,
+              effort: judge.effort,
+              maxTokens: 16_000,
+              system: [{ text: JUDGE_SYSTEM_PROMPT }],
+              user: buildJudgePrompt(sub, result.text),
+              schema: VerdictSchema,
+              fallbacks: opts.fallbacks !== false && jspec.serverFallback,
+              ...(opts.signal ? { signal: opts.signal } : {}),
+            });
+            const judgeCost = priceUsage(jspec, j.usage, "5m");
+            addUsage(tokens, j.usage);
+            cost += judgeCost;
+            judgeCostTotal += judgeCost;
+            judgeModels.push(j.servedModel || jspec.id);
+            const met = j.parsed.criteria.filter((c) => c.met).length;
+            const ok = j.parsed.pass && j.parsed.criteria.every((c) => c.met);
+            scoreMin = Math.min(scoreMin, j.parsed.criteria.length ? met / j.parsed.criteria.length : ok ? 1 : 0);
+            failed.push(...j.parsed.criteria.filter((c) => !c.met).map((c) => `${c.criterion}: ${c.reason}`));
+            if (j.parsed.feedback.trim()) feedbacks.push(j.parsed.feedback.trim());
+            writeFileSync(join(dir, `${base}.verdict${k ? `-${k + 1}` : ""}.json`), JSON.stringify(j.parsed, null, 2));
+            if (!ok) {
+              pass = false;
+              break;
+            }
+          }
           verdict = {
             pass,
-            score: j.parsed.criteria.length ? round(met / j.parsed.criteria.length, 3) : pass ? 1 : 0,
-            failed_criteria: j.parsed.criteria.filter((c) => !c.met).map((c) => `${c.criterion}: ${c.reason}`),
-            feedback: j.parsed.feedback,
-            judge_model: j.servedModel || jspec.id,
-            judge_cost_usd: round(judgeCost, 6),
+            score: round(scoreMin, 3),
+            failed_criteria: failed,
+            feedback: feedbacks.join("\n\n"),
+            judge_model: judgeModels.join(" + "),
+            judge_cost_usd: round(judgeCostTotal, 6),
           };
           status = pass ? "pass" : "fail";
-          writeFileSync(join(dir, `${base}.verdict.json`), JSON.stringify(j.parsed, null, 2));
         } catch (e) {
           if (isFatal(e)) throw new FatalRunError(describeError(e));
-          // A broken judge must not burn the whole ladder: accept, but say so loudly.
-          status = "pass";
-          verdict = {
-            pass: true,
-            score: 0,
-            failed_criteria: [],
-            feedback: `UNVERIFIED: the judge call failed (${describeError(e)}). Review this output by hand.`,
-            judge_model: jspec.id,
-            judge_cost_usd: 0,
-          };
-          bus.emit({ type: "warning", at: now(), id: sub.id, message: `${sub.id}: verification could not run, output accepted unverified (${describeError(e)}).` });
+          if (strict) {
+            // Under the max preset nothing ships unverified: stop this subsection and keep its output for review.
+            status = "error";
+            halt = `Verification could not run (${describeError(e)}); the output is saved in ${dir} for manual review and nothing downstream will build on it.`;
+            bus.emit({ type: "warning", at: now(), id: sub.id, message: `${sub.id}: ${halt}` });
+          } else {
+            // A broken judge must not burn the whole ladder: accept, but say so loudly.
+            status = "pass";
+            verdict = {
+              pass: true,
+              score: 0,
+              failed_criteria: [],
+              feedback: `UNVERIFIED: the judge call failed (${describeError(e)}). Review this output by hand.`,
+              judge_model: judgeModels.join(" + ") || "none",
+              judge_cost_usd: round(judgeCostTotal, 6),
+            };
+            bus.emit({ type: "warning", at: now(), id: sub.id, message: `${sub.id}: verification could not run, output accepted unverified (${describeError(e)}).` });
+          }
         }
       }
     }
@@ -397,7 +427,7 @@ export async function runPlan(opts: RunOptions): Promise<RunSummary> {
         },
       });
     }
-    return { record, artifacts };
+    return { record, artifacts, ...(halt ? { halt } : {}) };
   };
 
   const simulatedAttempt = async (unit: Unit, config: Config, rung: number, attemptNo: number): Promise<AttemptOutcome> => {
@@ -438,7 +468,9 @@ export async function runPlan(opts: RunOptions): Promise<RunSummary> {
       const judge = route.verification.judge;
       states.get(sub.id)!.status = "verifying";
       bus.emit({ type: "subsection.verifying", at: now(), id: sub.id, attempt: attemptNo, judge_model: judge.model });
-      const j = costs.judge(sub, judge);
+      const j1 = costs.judge(sub, judge);
+      const j2 = route.verification.second_judge ? costs.judge(sub, route.verification.second_judge) : { cost: 0, latency_s: 0 };
+      const j = { cost: j1.cost + j2.cost, latency_s: j1.latency_s + j2.latency_s };
       await sleep((j.latency_s * 1000) / speed, opts.signal);
       cost += j.cost;
       const caught = !good && rng() < route.verification.detection_rate;
@@ -526,6 +558,10 @@ export async function runPlan(opts: RunOptions): Promise<RunSummary> {
         state.final_model = config.model;
         emitMetrics();
         return { artifacts: outcome.artifacts, firstPass: rung === 0 };
+      }
+      if (outcome.halt) {
+        emitMetrics();
+        return null;
       }
       const reason =
         outcome.record.error ??

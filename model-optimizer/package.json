@@ -1,18 +1,11 @@
 {
   "name": "model-optimizer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Breaks any task, project or plan into subsections and routes each one to the Claude model and effort level that delivers the quality floor at the lowest expected cost, with live metrics and a self-calibrating feedback loop.",
   "type": "module",
   "bin": {
     "mopt": "bin/mopt.js"
   },
-  "files": [
-    "bin",
-    "dist",
-    "src",
-    "skill",
-    "examples"
-  ],
   "engines": {
     "node": ">=22.18"
   },
@@ -22,7 +15,8 @@
     "test": "node --test --test-reporter=spec \"test/**/*.test.ts\"",
     "check": "npm run typecheck && npm test",
     "mopt": "node src/cli.ts",
-    "prepare": "tsc -p tsconfig.build.json"
+    "prepare": "tsc -p tsconfig.build.json",
+    "bundle": "node scripts/bundle-plugin.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",
@@ -30,7 +24,20 @@
   },
   "devDependencies": {
     "@types/node": "^22.18.0",
+    "esbuild": "^0.25.10",
     "typescript": "~6.0.2"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Luca021123/model-optimizer.git"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "src",
+    "examples",
+    "plugins",
+    "scripts"
+  ]
 }

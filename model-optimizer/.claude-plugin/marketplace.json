@@ -1,0 +1,14 @@
+{
+  "name": "model-optimizer",
+  "owner": {
+    "name": "Luca021123"
+  },
+  "description": "Claude Code plugin that routes each part of a task to the right Claude model and effort, verified to a 99%+ quality floor.",
+  "plugins": [
+    {
+      "name": "model-optimizer",
+      "source": "./plugins/model-optimizer",
+      "description": "Break any task into subsections and run each on the Claude model and effort that delivers a verified 99%+ quality floor at the lowest usage."
+    }
+  ]
+}
