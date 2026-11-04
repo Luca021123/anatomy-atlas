@@ -16,7 +16,7 @@
 import { type Catalog, defaultCatalog, SERVER_FALLBACK_BETA } from "./catalog.ts";
 import { analyzeGraph, asapSchedule } from "./dag.ts";
 import { CostModel, configKey, round } from "./estimate.ts";
-import { pct, usd } from "./format.ts";
+import { pct, pctFloor, usd } from "./format.ts";
 import { computeMetrics, planCache } from "./metrics.ts";
 import {
   BATCH_LATENCY_S,
@@ -503,7 +503,7 @@ function explain(r: Routing, evals: CandidateEval[], firstMin: number, ctx: Cont
     const why =
       cheaper.p_first < firstMin
         ? `first-pass success ${pct(cheaper.p_first)} is below the ${pct(firstMin)} minimum`
-        : `final quality ${pct(cheaper.p_final)} is below the ${pct(r.quality_floor)} floor`;
+        : `final quality ${pctFloor(cheaper.p_final)} is below the ${pct(r.quality_floor)} floor`;
     reasons.push(`Cheaper ${catalog.label(cheaper)} was rejected: ${why}.`);
   }
   const stronger = evals
@@ -527,7 +527,7 @@ function explain(r: Routing, evals: CandidateEval[], firstMin: number, ctx: Cont
   }
   if (r.flags.includes("below-floor")) {
     reasons.push(
-      `No allowed configuration reaches the ${pct(r.quality_floor)} floor; the strongest option reaches ${pct(r.p_final)}. Split this subsection, sharpen its acceptance criteria, or plan human review.`,
+      `No allowed configuration reaches the ${pct(r.quality_floor)} floor; the strongest option reaches ${pctFloor(r.p_final)}. Split this subsection, sharpen its acceptance criteria, or plan human review.`,
     );
   }
   return reasons;

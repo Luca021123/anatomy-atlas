@@ -503,6 +503,7 @@ export function renderStats(stats: LedgerStats, opts: TermOptions): string {
         { header: "Attempts", align: "r" },
         { header: "Pass rate", align: "r" },
         { header: "Cost ratio", align: "r" },
+        { header: "Token ratio", align: "r" },
         { header: "Out mult", align: "r" },
         { header: "Tokens/s", align: "r" },
       ],
@@ -510,7 +511,8 @@ export function renderStats(stats: LedgerStats, opts: TermOptions): string {
         c.config,
         String(c.attempts),
         pct(c.pass_rate),
-        `${c.cost_ratio.toFixed(2)}x`,
+        c.cost_ratio === null ? "-" : `${c.cost_ratio.toFixed(2)}x`,
+        c.token_ratio === null || c.token_ratio === undefined ? "-" : `${c.token_ratio.toFixed(2)}x`,
         c.output_multiplier === null ? "-" : `${c.output_multiplier.toFixed(2)}x`,
         c.tps === null ? "-" : c.tps.toFixed(0),
       ]),
@@ -519,12 +521,18 @@ export function renderStats(stats: LedgerStats, opts: TermOptions): string {
     ),
   );
   out.push("");
-  const ratios = stats.by_config.filter((c) => c.attempts > 0);
-  if (ratios.length) {
-    const mean = ratios.reduce((a, c) => a + c.cost_ratio, 0) / ratios.length;
+  const describe = (mean: number, what: string): string => {
     const p = Math.round(Math.abs(mean - 1) * 100);
     const text = p === 0 ? "Estimates are accurate on average" : mean > 1 ? `Estimates run ${p}% low on average` : `Estimates run ${p}% high on average`;
-    out.push(`${text} (mean actual/estimated cost ${mean.toFixed(2)}x).`);
+    return `${text} (mean actual/estimated ${what} ${mean.toFixed(2)}x).`;
+  };
+  const costRatios = stats.by_config.map((c) => c.cost_ratio).filter((r): r is number => r !== null);
+  const tokenRatios = stats.by_config.map((c) => c.token_ratio).filter((r): r is number => typeof r === "number");
+  if (costRatios.length) out.push(describe(costRatios.reduce((a, b) => a + b, 0) / costRatios.length, "API cost"));
+  if (tokenRatios.length) {
+    out.push(
+      `${describe(tokenRatios.reduce((a, b) => a + b, 0) / tokenRatios.length, "subagent tokens")} Agent-mode estimates are rescaled per model from these runs.`,
+    );
   }
   return out.join("\n") + "\n";
 }

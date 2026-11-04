@@ -15,6 +15,9 @@ export const pct = (p: number): string => {
   return `${Math.abs(v - Math.round(v)) < 0.05 ? v.toFixed(0) : v.toFixed(1)}%`;
 };
 
+/** Percentage that never rounds up past a threshold: 99.49% stays 99.49%, so "below the 99.5% floor" reads correctly. */
+export const pctFloor = (p: number): string => (p >= 0.99 && p < 1 ? `${(Math.floor(p * 10000) / 100).toFixed(2)}%` : pct(p));
+
 /** Seconds as a compact duration: 42s, 3m 05s, 1h 20m. */
 export const duration = (seconds: number): string => {
   const s = Math.max(0, Math.round(seconds));

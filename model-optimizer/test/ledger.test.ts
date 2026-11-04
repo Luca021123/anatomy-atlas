@@ -211,7 +211,7 @@ test("stats() reports pass rates, cost ratios, multipliers and throughput", () =
   const haikuStat = s.by_config.find((c) => c.config === "claude-haiku-5-5@low")!;
   assert.equal(haikuStat.attempts, 2);
   assert.equal(haikuStat.pass_rate, 0.5);
-  assert.equal(haikuStat.cost_ratio, 1);
+  assert.equal(haikuStat.cost_ratio, null); // no attempt recorded a dollar cost
   assert.equal(haikuStat.output_multiplier, null);
   assert.equal(haikuStat.tps, null);
   assert.equal(s.by_config[0]!.config, `${SONNET}@high`);
@@ -239,3 +239,20 @@ function ledgerAppend(ledger: Ledger, rs: LedgerRecord[]) {
   writeFileSync(ledger.path, "");
   for (const r of rs) ledger.append(r);
 }
+
+test("stats: subagent logs (tokens, no dollar cost) report a token ratio, never a 0x cost ratio", () => {
+  const dir = mkdtempSync(join(tmpdir(), "mopt-ledger-agent-"));
+  const ledger = new Ledger(join(dir, "ledger.jsonl"));
+  for (const [actual, est] of [[80_000, 40_000], [90_000, 45_000]] as const) {
+    ledger.append({
+      v: 1, ts: new Date().toISOString(), source: "manual", plan: "p", subsection: "S1", category: "writing",
+      level_raw: 2, ceiling: 3.35, predicted_p: 0.98, model: SONNET, effort: "medium", rung: 0, pass: true,
+      est: { input: 1000, output: 500, cost: 0.05, total: est },
+      actual: { input: 0, output: 0, thinking: 0, cache_read: 0, cache_write: 0, cost: 0, latency_s: 30, total_tokens: actual },
+    });
+  }
+  const stat = ledger.stats(defaultCatalog).by_config[0]!;
+  assert.equal(stat.cost_ratio, null);
+  assert.equal(stat.token_ratio, 2);
+  assert.ok((ledger.calibration(defaultCatalog).agent_scale?.[SONNET] ?? 1) > 1, "agent-mode estimates scale up");
+});

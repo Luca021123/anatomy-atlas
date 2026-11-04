@@ -545,8 +545,8 @@ export interface ConfigStat {
   config: string;
   attempts: number;
   pass_rate: number;
-  /** Actual cost divided by estimated cost (1.0 = estimates are accurate). */
-  cost_ratio: number;
+  /** Actual cost divided by estimated cost (1.0 = accurate), or null when no attempt recorded a dollar cost (e.g. subagent runs). */
+  cost_ratio: number | null;
   /** Observed total output / visible output, or null when thinking tokens were not reported. */
   output_multiplier: number | null;
   /** Observed output tokens per second, or null. */

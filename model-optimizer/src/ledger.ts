@@ -104,7 +104,8 @@ export class Ledger {
     const byConfig = groupBy(records, (r) => configKey(r));
     const by_config: ConfigStat[] = [...byConfig.entries()]
       .map(([config, rs]) => {
-        const priced = rs.filter((r) => r.actual && r.est && r.est.cost > 0);
+        // Only attempts that recorded a real dollar cost (API runs); subagent logs carry tokens instead.
+        const priced = rs.filter((r) => r.actual && r.actual.cost > 0 && r.est && r.est.cost > 0);
         const withThinking = rs.filter((r) => r.actual && r.actual.thinking > 0 && r.actual.output > r.actual.thinking);
         const timed = rs.filter((r) => r.actual && r.actual.latency_s > 0 && r.actual.output > 0);
         return {
@@ -113,7 +114,7 @@ export class Ledger {
           pass_rate: round(rs.filter((r) => r.pass).length / rs.length, 4),
           cost_ratio: priced.length
             ? round(sum(priced.map((r) => r.actual?.cost ?? 0)) / Math.max(1e-12, sum(priced.map((r) => r.est?.cost ?? 0))), 3)
-            : 1,
+            : null,
           output_multiplier: withThinking.length
             ? round(median(withThinking.map((r) => (r.actual as NonNullable<LedgerRecord["actual"]>).output / ((r.actual as NonNullable<LedgerRecord["actual"]>).output - (r.actual as NonNullable<LedgerRecord["actual"]>).thinking))), 3)
             : null,
