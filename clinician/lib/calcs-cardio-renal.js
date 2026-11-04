@@ -1629,7 +1629,7 @@
       else c = { band: 'info', title: 'Below 0.4', text: 'Not classified by NICE; check BMI for underweight.' };
       return {
         value: fx(r, 2), label: 'Waist-to-height ratio', band: c.band, title: c.title, interpretation: c.text,
-        details: [{ label: 'Waist for a ratio of 0.5', value: fx(v.height / 2, 0) + ' cm or less' }],
+        details: [{ label: 'Waist for a ratio below 0.5', value: 'under ' + ft(v.height / 2, 1) + ' cm (' + ft(v.height / 2 / 2.54, 1) + ' in)' }],
         warnings: []
       };
     },

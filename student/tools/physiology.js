@@ -27,7 +27,6 @@
     '.pl-page{display:flex;flex-direction:column;gap:16px}',
     '.pl-sim{display:grid;gap:16px;grid-template-columns:minmax(0,1fr)}',
     '@media (min-width:1000px){.pl-sim{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);align-items:start}.pl-sim>.pl-stage{grid-column:1;grid-row:1/span var(--rows,3)}.pl-sim>:not(.pl-stage){grid-column:2}.pl-sim>.pl-stage.pl-sticky{position:sticky;top:calc(var(--header-h) + 12px)}.pl-sim>.pl-full{grid-column:1/-1}}',
-    '@media (max-width:640px){.pl-chips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin:0 -16px;padding:2px 16px 4px;scroll-padding-left:16px}.pl-chips::-webkit-scrollbar{display:none}.pl-chips .chip{flex:none}}',
     '.pl-sim>*{min-width:0}',
     '.pl-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;margin:0 0 .6rem}',
     '.pl-head h2,.pl-head h3{margin:0;font-size:1.05rem}',
@@ -109,7 +108,8 @@
     '.pl-perf{font-size:.76rem;color:var(--muted);margin:.4rem 0 0}',
     '.pl-tabs{margin-bottom:12px}',
     '.pl-phase{font-weight:700;color:var(--accent-text)}',
-    '@media (max-width:520px){.pl-stat-v{font-size:1.12rem}.pl-num{width:4.8em}}'
+    '@media (max-width:520px){.pl-stat-v{font-size:1.12rem}.pl-num{width:4.8em}}',
+    '@media (max-width:640px){.pl-chips{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin:0 -16px;padding:2px 16px 4px;scroll-padding-left:16px}.pl-chips::-webkit-scrollbar{display:none}.pl-chips .chip{flex:none}}'
   ].join('\n'));
 
   /* ------------------------------------------------------------------ helpers */
@@ -298,6 +298,16 @@
     return { el: box, redraw: redraw, destroy: function () { if (ro) ro.disconnect(); sched.cancel(); }, note: ariaNote };
   }
   function chartSize(w, ratio, minH, maxH) { return { width: w, height: Math.round(clamp(w * ratio, minH, maxH)) }; }
+  /** Label chart points without clipping: labels go below/left when the point is near the top/right edge. */
+  function labelPoints(wrap, pts) {
+    var ov = overlay(wrap), sc = ov.sc;
+    pts.forEach(function (p) {
+      if (!p.text) return;
+      var nearTop = sc.y(p.y) < sc.y(sc.ymax) + 16, nearRight = sc.x(p.x) > sc.x(sc.xmax) - 24;
+      ov.text(p.x, p.y, p.text, { dx: nearRight ? -9 : 8, dy: nearTop ? 16 : -8, anchor: nearRight ? 'end' : 'start', color: p.color, size: 12 });
+    });
+    return ov;
+  }
   /** Add text / shapes on top of an MT.chart.line wrapper using its scale. */
   function overlay(wrap) {
     var svg = wrap.querySelector('svg'), sc = wrap.scale;
@@ -548,8 +558,8 @@
       series.push({ name: state.fetal ? 'Fetal blood (current)' : 'Current blood', points: P.o2Curve(cond, { max: xMax, n: 200, mode: state.view }), color: 'var(--chart-1)', width: 3 });
       var yOf = function (po2, frac) { return content ? P.o2Content(state.hb, frac, po2) : frac * 100; };
       var aY = yOf(state.po2, res.fo2hb);
-      pts.push({ x: state.po2, y: aY, label: 'a', color: 'var(--chart-1)' });
-      if (!res.unsustainable && isNum(res.pvo2)) pts.push({ x: res.pvo2, y: yOf(res.pvo2, res.svo2), label: 'v̄', color: 'var(--chart-2)' });
+      pts.push({ x: state.po2, y: aY, text: 'a', color: 'var(--chart-1)' });
+      if (!res.unsustainable && isNum(res.pvo2)) pts.push({ x: res.pvo2, y: yOf(res.pvo2, res.svo2), text: 'v̄', color: 'var(--chart-2)' });
       var yMax = content ? Math.max(22, Math.ceil((1.34 * Math.max(state.hb, 15) + 0.003 * xMax + 1) / 2) * 2) : 100;
       var sz = chartSize(w, 0.62, 230, 400);
       var wrap = MT.chart.line({
@@ -560,6 +570,7 @@
         hlines: content ? [] : [{ y: 50, color: 'var(--chart-grid)', dash: '2 3' }],
         ariaLabel: 'Oxygen dissociation curve: P50 ' + fmt(res.p50, 1) + ' mmHg; saturation ' + fmt(res.fo2hb * 100, 1) + ' % at PaO2 ' + fmt(state.po2) + ' mmHg'
       });
+      labelPoints(wrap, pts);
       return wrap;
     }
 

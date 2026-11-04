@@ -1387,14 +1387,17 @@
     var work = L.normalizeSafetyPlan(MT.store.get(PLAN_KEY, null));
     var status = h('p.small.muted', { 'aria-live': 'polite', style: 'margin:0' }, work.updatedAt ? t('Last saved: {date}', { date: MT.formatDate(new Date(work.updatedAt), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }) : t('Not saved yet.'));
     var printEl = h('div.h2-printonly');
+    var dirty = false;
     function persist() {
+      dirty = false;
       var clean = L.normalizeSafetyPlan(work);
       clean.updatedAt = new Date().toISOString();
       MT.store.set(PLAN_KEY, clean);
       status.textContent = t('Saved on this phone at {time}.', { time: MT.formatTime(new Date()) });
     }
-    var persistSoon = MT.debounce(persist, 500);
-    life.add(function () { persistSoon.flush && persistSoon.flush(); });
+    var persistLater = MT.debounce(function () { if (dirty) persist(); }, 500);
+    function persistSoon() { dirty = true; persistLater(); }
+    life.add(function () { if (dirty) persist(); }); // never lose the last edit when leaving the page
     body.appendChild(h('section.card.h2-noprint',
       h('p.h2-big', { style: 'margin-top:0' }, t('Fill this in when you feel calmer. In a crisis, open it and follow the steps one by one, until you feel safer.')),
       h('div.h2-tools',

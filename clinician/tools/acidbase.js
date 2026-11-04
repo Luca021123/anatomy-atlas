@@ -244,7 +244,6 @@
           h('div.field', altLabel, altGroup, altHint, altErr),
           h('div.field', h('div.field-label', 'Enter as'), altModeSeg))),
       h('div.c2-actions', exampleSel, clearBtn, h('span.small.muted', h('span.c2-req', '*'), ' required. Values stay on this page only.')));
-    // the age field was created by makeField above; drop the duplicate created by group('pt') (not rendered)
     drawAlt();
 
     var headline = h('div.c2-headline', { 'aria-live': 'polite', 'aria-atomic': 'true' });
@@ -311,7 +310,7 @@
       headBox.className = 'result band-' + (res.status === 'ok' ? 'ok' : res.status);
       headline.textContent = res.headline;
       res.disorders.forEach(function (d) {
-        var role = d.role === 'primary' ? (res.disorders.length > 1 && res.steps.primary.mixed ? 'primary' : 'primary') : d.role === 'hidden' ? 'hidden' : 'additional';
+        var role = d.role === 'primary' ? 'primary' : d.role === 'hidden' ? 'hidden by normal HCO₃⁻' : 'additional';
         dxRow.appendChild(MT.ui.badge(AB.labelOf(d) + ' · ' + role, d.role === 'primary' ? 'accent' : 'warn'));
       });
       if (errors) hintsBox.appendChild(MT.ui.alert('warn', null, 'Some fields are out of range and were ignored — check the highlighted values.'));
@@ -424,7 +423,8 @@
       function choose(oi) {
         prog.answers[c.id] = oi; MT.store.set(PRACTICE_KEY, prog);
         reveal(oi); score();
-        var first = feedback.querySelector('strong'); if (first) feedback.focus && feedback.setAttribute('tabindex', '-1');
+        feedback.setAttribute('tabindex', '-1'); // options are now disabled: move focus to the feedback
+        try { feedback.focus({ preventScroll: false }); } catch (e) { feedback.focus(); }
       }
       function reveal(oi) {
         buttons.forEach(function (b) {
@@ -486,7 +486,6 @@
   var NA_UNIT = 'mmol/L';
   var GLU_UNITS = [{ id: 'mmol', label: 'mmol/L', factor: 1, system: 'si' }, { id: 'mgdl', label: 'mg/dL', factor: 1 / 18.016, system: 'conv' }];
   var WT_UNITS = [{ id: 'kg', label: 'kg', factor: 1, system: 'si' }, { id: 'lb', label: 'lb', factor: 0.45359237, system: 'conv' }];
-  var SEX_INPUT = { id: 'c2sex', label: 'Sex', type: 'radio', options: [{ value: 'female', label: 'Female' }, { value: 'male', label: 'Male' }] };
 
   function tbwText(f, w) { return 'Total body water ' + fmt(f, 2) + ' × ' + fmt(w, 1) + ' kg = ' + fmt(f * w, 1) + ' L'; }
 
@@ -548,7 +547,7 @@
       { id: 'c2hna', label: 'Serum sodium', type: 'number', unit: 'mmol/L', min: 90, max: 160 },
       { id: 'c2hwt', label: 'Weight', type: 'number', units: WT_UNITS, min: 1, max: 300 },
       { id: 'c2hage', label: 'Age', type: 'number', unit: 'years', min: 0, max: 120 },
-      SEX_INPUT,
+      { id: 'c2hsex', label: 'Sex', type: 'radio', options: [{ value: 'female', label: 'Female' }, { value: 'male', label: 'Male' }] },
       { id: 'c2hinf', label: 'Infusate', type: 'select', options: AB.INFUSATES.map(function (f) { return { value: f.id, label: f.label + ' (Na⁺ ' + f.na + (f.k ? ', K⁺ ' + f.k : '') + ')' }; }).concat([{ value: 'custom', label: 'Custom — enter sodium below' }]) },
       { id: 'c2hcustom', label: 'Custom infusate Na⁺', type: 'number', unit: 'mmol/L', min: 0, max: 1000, required: false, hint: 'Used only when "Custom" is selected.' },
       { id: 'c2hk', label: 'Potassium added to the infusate', type: 'number', unit: 'mmol/L', min: 0, max: 80, required: false, hint: 'Added potassium raises sodium like sodium does (Adrogué–Madias).' },
