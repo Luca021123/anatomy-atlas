@@ -30,6 +30,11 @@
   function r2(x) { return Math.round(x * 100) / 100; }
   function has(arr, v) { return Array.isArray(arr) && arr.indexOf(v) >= 0; }
   function int0to(v, max) { return typeof v === 'number' && v >= 0 && v <= max && Math.floor(v) === v; }
+  /** Whole days from a to b ('YYYY-MM-DD'); NaN when either is invalid. */
+  function daysBetween(a, b) {
+    function u(x) { var p = String(x || '').slice(0, 10).split('-').map(Number); return p.length === 3 && p.every(isNum) ? Date.UTC(p[0], p[1] - 1, p[2]) : NaN; }
+    return Math.round((u(b) - u(a)) / 864e5);
+  }
 
   /* ------------------------------------------------------------------ sources */
   var SOURCES = {
@@ -645,7 +650,10 @@
     },
     'pep': function (c) {
       var n = infectionNeeds(c.infections);
-      return n.pep ? { r: 1, priority: 'urgent', why: [why('exposure-72h')] } : null;
+      if (!n.pep) return null;
+      // PEP must start within 72 h; once the answer is more than 3 days old the window has closed.
+      var age = c.infections.date && c.today ? daysBetween(c.infections.date, c.today) : 0;
+      return isNum(age) && age > 3 ? null : { r: 1, priority: 'urgent', why: [why('exposure-72h')] };
     },
     'bp-urgent': function (c) {
       return bpLevel(c.raw.sys, c.raw.dia) === 'crisis' ? { r: 1, priority: 'urgent', why: [why('bp-crisis', { sys: c.raw.sys, dia: c.raw.dia })] } : null;
@@ -770,7 +778,7 @@
       if (range === 'normal') return null;
       var f = c.findrisc;
       if (f && isNum(f.score)) {
-        var s = f.complete ? f.score : f.min;
+        var s = f.complete ? f.score : (isNum(f.max) ? f.max : f.score); // waist missing: use the upper bound (never falsely reassure)
         var r = s >= 15 ? 1 : s >= 12 ? 0.7 : s >= 7 ? 0.4 : 0.15;
         return { r: r, why: [why('findrisc', { score: f.score, band: f.band || f.bandMin })] };
       }
@@ -832,13 +840,13 @@
     },
     'mental-health-support': function (c) {
       var r = 0, w = [], soon = false;
-      if (c.phq9) {
+      if (c.phq9 && isNum(c.phq9.score)) {
         var s = c.phq9.score;
         var pr = s >= 20 ? 1 : s >= 15 ? 0.9 : s >= 10 ? 0.75 : s >= 5 ? 0.35 : 0;
         if (pr > 0) { r = Math.max(r, pr); w.push(why('phq9', { score: s })); }
         if (s >= 20) soon = true;
       } else if (c.phq2 && c.phq2.positive) { r = Math.max(r, 0.6); w.push(why('phq2-positive')); }
-      if (c.gad7) {
+      if (c.gad7 && isNum(c.gad7.score)) {
         var g = c.gad7.score;
         var gr = g >= 15 ? 0.9 : g >= 10 ? 0.75 : g >= 5 ? 0.3 : 0;
         if (gr > 0) { r = Math.max(r, gr); w.push(why('gad7', { score: g })); }
@@ -935,6 +943,6 @@
     auditc: auditc, stopbang: stopbang, tbScreen: tbScreen, fallsScreen: fallsScreen, infectionNeeds: infectionNeeds,
     medFlags: medFlags, saltSubstituteGate: saltSubstituteGate,
     buildContext: buildContext, rankActions: rankActions, bpBenefit: bpBenefit,
-    suggestRecheckMonths: suggestRecheckMonths, addMonths: addMonths
+    suggestRecheckMonths: suggestRecheckMonths, addMonths: addMonths, daysBetween: daysBetween
   };
 });

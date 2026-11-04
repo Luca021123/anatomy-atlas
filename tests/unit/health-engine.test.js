@@ -508,3 +508,20 @@ test('every cited source id and action id is defined', () => {
   for (const list of Object.values(E.ACTION_SOURCES)) for (const s of list) assert.ok(E.SOURCES[s], s);
   assert.ok(E.CONDITIONS.includes('raised-sugar') && !E.CONDITIONS.includes('prediabetes'));
 });
+
+test('PEP is urgent only while the 72-hour window can still be open', () => {
+  const inf = date => ({ infections: { hivLast: 'past1y', exposure: 'yes', exposure72h: 'yes', date } });
+  const has = (date, today) => E.rankActions(E.buildContext({ birthYear: 1990 }, inf(date), { year: 2026, today })).some(a => a.id === 'pep');
+  assert.equal(has('2026-11-03', '2026-11-03'), true);
+  assert.equal(has('2026-11-01', '2026-11-03'), true);
+  assert.equal(has('2026-10-25', '2026-11-03'), false);
+  assert.equal(E.daysBetween('2026-10-31', '2026-11-03'), 3);
+});
+test('an incomplete PHQ-9 with item 9 answered still triggers crisis support; FINDRISC without waist uses the upper bound', () => {
+  const plan = E.rankActions(E.buildContext({ birthYear: 1990 }, { phq9: { score: null, item9: 2, incomplete: true }, phq2: { score: 4, positive: true } }, { year: 2026 }));
+  assert.equal(plan[0].id, 'crisis-support');
+  assert.equal(plan.find(a => a.id === 'mental-health-support').relevance, 0.6);
+  const f = { score: 10, min: 10, max: 14, complete: false, band: 'moderate' };
+  const g = E.rankActions(E.buildContext({ birthYear: 1970 }, { findrisc: f }, { year: 2026 })).find(a => a.id === 'check-glucose');
+  assert.equal(g.relevance, 0.7);
+});

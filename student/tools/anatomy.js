@@ -70,7 +70,7 @@
     '.an-mk-site circle,.an-mk-bad circle{fill:var(--danger)}.an-mk-aff circle,.an-mk-part circle{fill:var(--warn)}.an-mk-ok circle{fill:var(--ok)}',
     '.an-legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;font-size:.82rem;color:var(--text-2)}',
     '.an-legend span{display:inline-flex;align-items:center;gap:6px}',
-    '.an-sw{width:14px;height:14px;border-radius:4px;border:2px solid var(--nc);display:inline-block;flex:none}',
+    '.an-sw{--nc:var(--border-strong);width:14px;height:14px;border-radius:4px;border:2px solid var(--nc);display:inline-block;flex:none}',
     '.an-sw.s-site{background:var(--danger-soft);border-color:var(--danger)}',
     '.an-sw.s-aff{background:var(--warn-soft);border-color:var(--warn)}',
     '.an-sw.s-part{background:var(--warn-soft);border-color:var(--warn);border-style:dashed}',
@@ -123,6 +123,20 @@
     '.an-nerve-line.thick{stroke-width:5}',
     '.an-nerve-line.dash{stroke-dasharray:6 4}',
     '.an-lead-line{fill:none;stroke:var(--border-strong);stroke-width:1.2}',
+    '.an-nv{cursor:pointer;outline:none}',
+    '.an-nv.is-sel .an-nerve-line,.an-nv.is-sel~* .an-x{stroke:var(--accent)}',
+    '.an-nv.is-sel .an-nerve-line{stroke:var(--accent);stroke-width:5}',
+    '.an-nv.is-sel .an-dot{fill:var(--accent);stroke:var(--accent)}',
+    '.an-nv.is-sel rect.an-pb{fill:var(--accent-soft);stroke:var(--accent);stroke-width:2.4}',
+    '.an-nv.is-ok .an-nerve-line{stroke:var(--ok);stroke-width:5}.an-nv.is-ok rect.an-pb{fill:var(--ok-soft);stroke:var(--ok);stroke-width:2.6}.an-nv.is-ok .an-dot{fill:var(--ok)}',
+    '.an-nv.is-bad .an-nerve-line{stroke:var(--danger);stroke-width:5}.an-nv.is-bad rect.an-pb{fill:var(--danger-soft);stroke:var(--danger);stroke-width:2.6}.an-nv.is-bad .an-dot{fill:var(--danger)}',
+    '.an-nv:hover rect.an-pb{stroke:var(--accent)}',
+    '.an-nv:focus-visible .an-halo{opacity:1;stroke-dasharray:5 3}',
+    '.an-nv.is-sel .an-halo{opacity:1}',
+    '.an-nv .an-num{font-weight:800;fill:var(--accent-text)}',
+    '.an-nv text{text-anchor:start}',
+    '.an-nv.an-nv-l text{text-anchor:middle}',
+    '.an-brain:has(.is-sel) .an-nvw:not(:has(.is-sel)){opacity:.55}',
     '.an-hl .an-nerve-line{stroke:var(--accent);stroke-width:5}',
     '.an-hl .an-lead-line{stroke:var(--accent);stroke-width:2}',
     '.an-hl .an-dot{fill:var(--accent)}',
@@ -505,14 +519,14 @@
         }
         function lesionCard(l) {
           var ms = l.muscles.map(function (id) { return H.muscleById(id); });
-          var lvl = l.sites.map(function (id) { return G.byId[id].name + ' (' + G.byId[id].roots + ')'; }).join('; ');
+          var lvl = l.sites.map(function (id) { return G.byId[id].name + ' \u2013 roots ' + G.byId[id].roots; }).join('; ');
           return h('div.card.an-panel',
             h('h3', l.name),
             h('div.an-badges', MT.ui.badge('Lesion', 'danger'), MT.ui.badge(l.sites.length + ' site' + (l.sites.length > 1 ? 's' : ''))),
             h('p', { style: 'margin-top:6px' }, h('b', 'Site: '), lvl),
             h('h4', 'Mechanism'), h('p', l.mechanism),
             h('h4', 'Paralysed or weak muscles (' + ms.length + ')'),
-            ms.length ? muscleChips(ms) : h('p', 'None: a purely sensory syndrome.'),
+            ms.length ? [muscleChips(ms), ms.some(function (m) { return m.dual; }) ? h('p.an-note', { style: 'margin-top:6px' }, '* also supplied by another nerve, so only partly weakened') : null] : h('p', 'None: a purely sensory syndrome.'),
             h('h4', 'Sensory loss'), h('p', l.sensory),
             h('div.an-sign', h('b', 'Classic sign'), l.sign),
             h('h4', 'Spared'), h('p', l.spared),
@@ -611,6 +625,584 @@
       }
     });
   }
+
+  /* =====================================================================
+     CRANIAL NERVES
+     ===================================================================== */
+  var CG = { // geometry of the ventral brainstem schematic: exit point (ex,ey) and label row (ly)
+    'cn-i': { ex: [244, 42], ly: 28, sub: 'forebrain: olfactory bulb' },
+    'cn-ii': { ex: [177, 86], ly: 68, sub: 'diencephalon: optic chiasm' },
+    'cn-iii': { ex: [153, 190], ly: 150, sub: 'interpeduncular fossa' },
+    'cn-iv': { ex: [206, 214], ly: 202, dash: true, sub: 'exits dorsally, wraps round' },
+    'cn-v': { ex: [231, 282], ly: 254, thick: true, sub: 'lateral pons' },
+    'cn-viii': { ex: [209, 326], ly: 296, sub: 'cerebellopontine angle' },
+    'cn-vii': { ex: [193, 334], ly: 340, sub: 'medial to VIII' },
+    'cn-vi': { ex: [157, 338], ly: 384, sub: 'pontomedullary junction' },
+    'cn-ix': { ex: [191, 366], ly: 428, sub: 'post-olivary sulcus' },
+    'cn-x': { ex: [192, 383], ly: 472, sub: 'post-olivary sulcus' },
+    'spinal-accessory': { ex: [191, 400], ly: 516, sub: 'also spinal roots C1–C5' },
+    'cn-xii': { ex: [167, 410], ly: 560, sub: 'pre-olivary sulcus' }
+  };
+  var MOD_LETTER = { 'Sensory': 'S', 'Motor': 'M', 'Both (mixed)': 'B' };
+
+  function buildBrainstem(handlers) {
+    var svg = s('svg', { viewBox: '0 0 432 590', class: 'an-svg an-brain', role: 'group', 'aria-label': 'Ventral view of the brainstem showing where each cranial nerve emerges. Use Tab to move between nerves and Enter to select.' });
+    var st = { fill: 'var(--surface-3)', stroke: 'var(--border-strong)', 'stroke-width': 1.6 };
+    function shape(d, extra) { return s('path', Object.assign({ d: d, fill: st.fill, stroke: st.stroke, 'stroke-width': st['stroke-width'], 'stroke-linejoin': 'round' }, extra || {})); }
+    function line(d, w, extra) { return s('path', Object.assign({ d: d, fill: 'none', stroke: 'var(--border-strong)', 'stroke-width': w, 'stroke-linecap': 'round' }, extra || {})); }
+    var gS = s('g', { 'aria-hidden': 'true' });
+    // optic apparatus and olfactory bulbs
+    [0, 1].forEach(function (side) {
+      var m = function (x) { return side ? 300 - x : x; };
+      gS.appendChild(line('M ' + m(142) + ' 80 L ' + m(118) + ' 44', 9));
+      gS.appendChild(line('M ' + m(136) + ' 94 C ' + m(112) + ' 110, ' + m(92) + ' 140, ' + m(90) + ' 186', 8));
+      gS.appendChild(s('ellipse', { cx: m(244) - (side ? 0 : 0), cy: 42, rx: 13, ry: 8, fill: st.fill, stroke: st.stroke, 'stroke-width': 1.6 }));
+      gS.appendChild(line('M ' + m(238) + ' 48 C ' + m(226) + ' 60, ' + m(210) + ' 70, ' + m(186) + ' 72', 2.4));
+    });
+    gS.appendChild(shape('M 136 78 L 164 78 L 172 94 L 128 94 Z'));
+    // midbrain (crura), pons, medulla, cord
+    gS.appendChild(shape('M 140 128 C 120 112, 100 122, 96 150 C 92 185, 98 215, 106 238 L 148 238 C 146 200, 142 160, 140 128 Z'));
+    gS.appendChild(shape('M 160 128 C 180 112, 200 122, 204 150 C 208 185, 202 215, 194 238 L 152 238 C 154 200, 158 160, 160 128 Z'));
+    gS.appendChild(s('rect', { x: 124, y: 440, width: 52, height: 140, rx: 6, fill: st.fill, stroke: st.stroke, 'stroke-width': 1.6 }));
+    gS.appendChild(shape('M 106 238 C 70 244, 60 280, 70 312 C 76 326, 90 332, 106 334 L 194 334 C 210 332, 224 326, 230 312 C 240 280, 230 244, 194 238 Z'));
+    gS.appendChild(line('M 150 242 L 150 332', 1.4, { opacity: 0.7 }));
+    [262, 282, 302].forEach(function (y) { gS.appendChild(line('M 84 ' + y + ' C 120 ' + (y - 8) + ', 180 ' + (y - 8) + ', 216 ' + y, 1, { opacity: 0.45 })); });
+    gS.appendChild(shape('M 106 334 L 194 334 C 196 360, 192 400, 184 446 L 116 446 C 108 400, 104 360, 106 334 Z'));
+    [120, 180].forEach(function (cx) { gS.appendChild(s('ellipse', { cx: cx + (cx === 180 ? 2 : -2), cy: 378, rx: 11, ry: 25, fill: 'var(--surface-2)', stroke: st.stroke, 'stroke-width': 1.3 })); });
+    gS.appendChild(line('M 150 338 L 150 446', 1.4, { opacity: 0.7 }));
+    gS.appendChild(line('M 138 340 L 138 430 M 162 340 L 162 430', 1.1, { opacity: 0.5 }));
+    gS.appendChild(line('M 138 432 L 162 446 M 162 432 L 138 446', 1.4, { opacity: 0.6 }));
+    [['MIDBRAIN', 150, 218], ['PONS', 150, 296], ['MEDULLA', 150, 418], ['SPINAL CORD', 150, 520]].forEach(function (t) {
+      gS.appendChild(s('text', { x: t[1], y: t[2], 'font-size': 9, 'letter-spacing': 1, class: 'an-struct-name', style: 'fill:var(--muted);paint-order:stroke;stroke:var(--surface-3);stroke-width:4px' }, t[0]));
+    });
+    svg.appendChild(gS);
+    // nerves
+    var els = {};
+    D.cranial.forEach(function (c) {
+      var g = CG[c.id], ex = g.ex[0], ey = g.ex[1], ly = g.ly;
+      var grp = s('g', { class: 'an-nv', tabindex: '0', role: 'button', 'data-id': c.id, 'aria-label': 'CN ' + c.numeral + ' ' + c.name + ', ' + c.modality.toLowerCase() + ', ' + D.brainstemExits[c.id] });
+      var left = s('g', { class: 'an-nv an-nv-l', 'data-id': c.id, 'aria-hidden': 'true' });
+      var lx = 300 - ex;
+      // right-hand side: nerve line and label pill
+      var cls = 'an-nerve-line' + (g.thick || c.id === 'cn-ii' ? ' thick' : '') + (g.dash ? ' dash' : '');
+      if (c.id === 'spinal-accessory') grp.appendChild(s('path', { class: 'an-nerve-line dash', d: 'M 176 580 L 178 540 C 182 480, 190 430, 191 404', style: 'stroke-width:2.4' }));
+      grp.appendChild(s('path', { class: cls, d: 'M ' + ex + ' ' + ey + ' C ' + (ex + 60) + ' ' + ey + ', 210 ' + ly + ', 268 ' + ly }));
+      grp.appendChild(s('circle', { class: 'an-dot', cx: ex, cy: ey, r: 5.5 }));
+      grp.appendChild(s('rect', { class: 'an-halo', x: 264, y: ly - 17, width: 160, height: 34, rx: 9 }));
+      grp.appendChild(s('rect', { class: 'an-pb', x: 268, y: ly - 13, width: 154, height: 26, rx: 7, fill: 'var(--surface)' }));
+      var tx = s('text', { x: 276, y: ly + 4.5, 'font-size': 11.5 });
+      tx.appendChild(s('tspan', { class: 'an-num' }, c.numeral + ' '));
+      tx.appendChild(s('tspan', {}, c.name));
+      grp.appendChild(tx);
+      grp.appendChild(s('circle', { cx: 411, cy: ly, r: 7.5, fill: 'none', stroke: 'var(--muted)', 'stroke-width': 1 }));
+      grp.appendChild(s('text', { x: 411, y: ly + 3.4, 'font-size': 9.5, 'font-weight': 700, style: 'text-anchor:middle' }, MOD_LETTER[c.modality]));
+      grp.appendChild(s('text', { x: 276, y: ly + 24, 'font-size': 9.5, style: 'fill:var(--muted);text-anchor:start' }, g.sub));
+      // left-hand mirror
+      left.appendChild(s('path', { class: cls, d: 'M ' + lx + ' ' + ey + ' C ' + (lx - 50) + ' ' + ey + ', 82 ' + ly + ', 34 ' + ly }));
+      left.appendChild(s('circle', { class: 'an-dot', cx: lx, cy: ey, r: 5.5 }));
+      left.appendChild(s('circle', { class: 'an-lbadge', cx: 22, cy: ly, r: 13, fill: 'var(--surface)', stroke: 'var(--border-strong)', 'stroke-width': 1.4 }));
+      left.appendChild(s('text', { x: 22, y: ly + 3.8, 'font-size': c.numeral.length > 3 ? 8.5 : 10, 'font-weight': 800, style: 'fill:var(--accent-text)' }, c.numeral));
+      var wrap = s('g', { class: 'an-nvw' });
+      wrap.appendChild(left); wrap.appendChild(grp);
+      [grp, left].forEach(function (el) {
+        el.addEventListener('click', function () { handlers.activate(c.id); });
+      });
+      grp.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handlers.activate(c.id); }
+        else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); handlers.step(c.id, 1); }
+        else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); handlers.step(c.id, -1); }
+      });
+      svg.appendChild(wrap);
+      els[c.id] = [grp, left, wrap];
+    });
+    return { svg: svg, els: els };
+  }
+
+  function nerveCard(c) {
+    var spoken = 'Cranial nerve ' + c.numeral + ', ' + c.name + '. ' + c.modality + '. Functions: ' + c.functions.join('. ') + '. Bedside test: ' + c.test + ' Lesion: ' + c.lesion;
+    var rows = [
+      ['Modality and fibre types', c.modality + '. ' + c.components],
+      ['Nuclei and central connections', c.nuclei],
+      ['Brainstem exit / entry', c.exit],
+      ['Skull opening', c.foramen],
+      ['Branches and course', c.branches],
+      ['Functions', h('ul', c.functions.map(function (f) { return h('li', f); }))],
+      ['Bedside test', c.test],
+      ['Lesion signs', c.lesion],
+      ['Common causes', c.causes]
+    ];
+    var motorList = D.muscles.filter(function (m) { return m.nerve === c.id || (c.id === 'cn-v' && m.nerve === 'cn-v3') || (c.id === 'cn-x' && (m.nerve === 'external-laryngeal' || m.nerve === 'recurrent-laryngeal')); });
+    var card = h('div.card.an-panel.an-ncard.an-sel-card',
+      h('button.btn.btn-sm.btn-ghost.an-back', { type: 'button', onclick: function () { var d = MT.$('.an-brainbox'); if (d) scrollTo(d); } }, '↑ Back to the diagram'),
+      h('h3', 'CN ' + c.numeral + ' – ' + c.name),
+      h('div.an-badges', MT.ui.badge(c.modality, c.modality === 'Motor' ? 'ok' : (c.modality === 'Sensory' ? 'info' : 'warn')), MT.ui.badge(c.foramen.split(' (')[0].split(',')[0])),
+      h('dl', rows.map(function (r) { return [h('dt', r[0]), h('dd', r[1])]; })),
+      motorList.length ? [h('h4', 'Muscles in this atlas'), h('div.an-chips', motorList.map(function (m) { return chipLink(m.name, '#/muscles/' + m.id); }))] : null,
+      h('div.an-sign', h('b', 'Pearl'), c.pearls),
+      MT.speech && MT.speech.supported ? h('div', { style: 'margin-top:10px' }, MT.speech.button(function () { return spoken; })) : null);
+    return card;
+  }
+
+  MT.registerTool({
+    id: 'cranial-nerves', title: 'Cranial nerves', category: 'anatomy', icon: '🧠', order: 3,
+    description: 'All 12 cranial nerves: modality, nuclei, brainstem exit, skull foramen, branches, functions, bedside tests, lesion signs and causes, on a ventral brainstem schematic, with quizzes.',
+    keywords: ['cranial nerves', 'brainstem', 'oculomotor', 'trochlear', 'trigeminal', 'abducens', 'facial', 'vestibulocochlear', 'glossopharyngeal', 'vagus', 'accessory', 'hypoglossal', 'olfactory', 'optic', 'bell palsy', 'diplopia'],
+    render: function (container, ctx) {
+      var st = { tab: 'explore', sel: null, kind: 'mcq', tap: null, tapSession: { n: 0, ok: 0, streak: 0 }, mcqNode: null };
+      var byId = {}; D.cranial.forEach(function (c) { byId[c.id] = c; });
+      if (ctx.params && byId[ctx.params[0]]) st.sel = ctx.params[0];
+      var ids = D.cranial.map(function (c) { return c.id; });
+      var diag = null, pills = h('div.an-cranial-pills', { role: 'group', 'aria-label': 'Choose a cranial nerve' });
+      var box = h('div.an-svgbox.an-brainbox'), ctrl = h('div.an-ctrl'), panel = h('div.an-right', { 'aria-live': 'polite' });
+      var tabs = tabsBar([{ id: 'explore', label: 'Explore' }, { id: 'table', label: 'Summary table' }, { id: 'quiz', label: 'Quiz' }], 'explore', function (id) { setTab(id); });
+      var body = h('div');
+      var legendEl = h('div.an-legend', h('span', h('b', 'S'), ' sensory'), h('span', h('b', 'M'), ' motor'), h('span', h('b', 'B'), ' both'), h('span', 'Right side labelled; the left side is a mirror image.'));
+      var diagCard = h('div.card.an-dcard', ctrl, pills, box, legendEl);
+      var root = h('div.an-wrap', tabs, body, refLine(['Moore KL et al. Clinically Oriented Anatomy, 8th–9th ed. (Head and neck; Neuroanatomy)', 'Blumenfeld H. Neuroanatomy through Clinical Cases, 2nd ed.', 'Bickley LS. Bates’ Guide to Physical Examination and History Taking (cranial nerve examination)'].concat(D.cranialNerveMnemonics.map(function (m) { return m.title + ': ' + m.text; }))));
+      container.appendChild(root);
+
+      function activate(id) {
+        if (st.tab === 'quiz') { if (st.kind === 'tap') answerTap(id); return; }
+        st.sel = id; paint();
+        var p = MT.$('.an-sel-card', panel);
+        if (p && panel.getBoundingClientRect().top > (self.innerHeight || 800) * 0.55) scrollTo(p);
+      }
+      function step(id, d) { var i = ids.indexOf(id) + d; if (i >= 0 && i < ids.length && diag) diag.els[ids[i]][0].focus(); }
+      function paint() {
+        MT.$$('.an-pill-b', pills).forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.id === st.sel && st.tab !== 'quiz')); });
+        if (!diag) return;
+        diag.svg.classList.toggle('has-nsel', !!st.sel && st.tab !== 'quiz');
+        ids.forEach(function (id) {
+          var on = id === st.sel && st.tab !== 'quiz';
+          diag.els[id].forEach(function (el, i) { if (i < 2) { el.classList.toggle('is-sel', on); el.classList.remove('is-ok', 'is-bad'); } });
+          diag.els[id][2].classList.toggle('an-hl', on);
+        });
+        if (st.tab === 'quiz' && st.kind === 'tap' && st.tap && st.tap.result) {
+          diag.els[st.tap.target].forEach(function (el, i) { if (i < 2) el.classList.add('is-ok'); });
+          if (st.tap.picked !== st.tap.target) diag.els[st.tap.picked].forEach(function (el, i) { if (i < 2) el.classList.add('is-bad'); });
+        }
+        if (st.tab === 'explore') {
+          MT.clear(panel);
+          panel.appendChild(st.sel ? nerveCard(byId[st.sel]) : h('div.card.an-panel', h('h3', 'Select a cranial nerve'),
+            h('p.muted', 'Tap a nerve on the brainstem (or use the numbered buttons) to see its nuclei, exit level, skull opening, branches, functions, bedside test, lesion signs and common causes.'),
+            h('div', { style: 'margin-top:10px' }, D.cranialNerveMnemonics.map(function (m) { return h('p.an-note', { style: 'margin-top:6px' }, h('b', m.title + ': '), m.text); }))));
+        }
+      }
+      function buildPills() {
+        MT.clear(pills);
+        D.cranial.forEach(function (c) {
+          pills.appendChild(h('button.an-chip.an-pill-b', { type: 'button', 'data-id': c.id, 'aria-pressed': 'false', title: c.name, 'aria-label': 'CN ' + c.numeral + ' ' + c.name, onclick: function () { activate(c.id); } }, c.numeral));
+        });
+      }
+      function setTab(id) {
+        st.tab = id; st.sel = id === 'explore' ? st.sel : null;
+        destroyMcq(st.mcqNode); st.mcqNode = null;
+        var names = { explore: 'Explore', table: 'Summary table', quiz: 'Quiz' };
+        MT.$$('[role=tab]', tabs).forEach(function (b) { b.setAttribute('aria-selected', String(b.textContent === names[id])); });
+        draw();
+      }
+      function tableView() {
+        var rows = D.cranial.map(function (c) {
+          return h('tr', h('th', { scope: 'row' }, c.numeral), h('td', h('a', { href: '#/cranial-nerves/' + c.id }, c.name)), h('td', c.modality), h('td', D.brainstemExits[c.id]), h('td', c.foramen.split(' (')[0]), h('td', c.functions[0]));
+        });
+        return h('div.stack',
+          h('div.table-wrap', h('table.table.an-tbl', h('caption.sr-only', 'Cranial nerves summary'), h('thead', h('tr', ['CN', 'Name', 'Type', 'Brainstem exit', 'Skull opening', 'Main function'].map(function (t) { return h('th', { scope: 'col' }, t); }))), h('tbody', rows))),
+          h('div.grid', { style: '--min:240px' }, D.cranialNerveMnemonics.map(function (m) { return h('div.card-soft.an-panel', h('h4', { style: 'margin-top:0' }, m.title), h('p', m.text)); })));
+      }
+      function startTap() {
+        var bank = D.quiz.cranialBank, t, uniqueExit = ['cn-i', 'cn-ii', 'cn-iii', 'cn-iv', 'cn-v', 'cn-vi', 'cn-xii'];
+        if (Math.random() < 0.3) { var id = Q.pick(uniqueExit); t = { target: id, prompt: 'Tap the nerve that attaches to the brain at: ' + D.brainstemExits[id].toLowerCase() + '.', why: 'CN ' + byId[id].numeral + ' ' + byId[id].name + ': ' + byId[id].exit }; }
+        else { var b = Q.pick(bank); t = { target: b.a, prompt: b.q, why: b.why }; }
+        t.result = null; t.picked = null; st.tap = t;
+      }
+      function answerTap(id) {
+        var t = st.tap; if (!t || t.result) return;
+        var ok = id === t.target; t.result = ok ? 'ok' : 'bad'; t.picked = id;
+        st.tapSession.n++; if (ok) { st.tapSession.ok++; st.tapSession.streak++; } else st.tapSession.streak = 0;
+        bumpStat('cranial-tap', ok);
+        drawQuizPanel(); paint();
+      }
+      function drawQuizPanel() {
+        MT.clear(panel);
+        if (st.kind === 'tap') {
+          if (!st.tap) startTap();
+          var t = st.tap;
+          var card = h('div.card.an-panel', h('div.an-q-head', h('h3', 'Tap the nerve'), h('span.an-score', scoreText(st.tapSession, 'cranial-tap'))), h('p.an-q-prompt', { style: 'margin-top:6px' }, t.prompt), h('p.an-note', { style: 'margin-top:6px' }, 'Tap the nerve on the brainstem, or use the numbered buttons above the diagram.'));
+          if (t.result) {
+            var tg = byId[t.target];
+            card.appendChild(h('div.an-fb.' + t.result, { style: 'margin-top:10px' }, h('strong', t.result === 'ok' ? 'Correct. ' : 'Not quite: you chose CN ' + byId[t.picked].numeral + '; the answer is CN ' + tg.numeral + ' ' + tg.name + '. '), t.why));
+            card.appendChild(h('button.btn.btn-primary', { type: 'button', style: 'margin-top:10px', onclick: function () { startTap(); drawQuizPanel(); paint(); } }, 'Next question'));
+          } else card.appendChild(h('button.btn.btn-sm.btn-ghost', { type: 'button', style: 'margin-top:10px', onclick: function () { startTap(); drawQuizPanel(); paint(); } }, 'Skip'));
+          panel.appendChild(card);
+        }
+      }
+      function draw() {
+        MT.clear(body); MT.clear(ctrl);
+        if (st.tab === 'table') { body.appendChild(tableView()); return; }
+        if (st.tab === 'quiz') ctrl.appendChild(MT.ui.segmented([{ value: 'mcq', label: 'Multiple choice' }, { value: 'tap', label: 'Tap the brainstem' }], st.kind, function (v) { st.kind = v; destroyMcq(st.mcqNode); st.mcqNode = null; draw(); }));
+        if (st.tab === 'quiz' && st.kind === 'mcq') {
+          st.mcqNode = mcq({ topic: 'cranial-mcq', make: function () { return Q.cranialQuestion(); } });
+          body.appendChild(h('div.an-grid', h('div.an-left', h('div.card.an-panel', h('h3', 'Cranial nerve quiz'), st.mcqNode)), h('div.an-right', h('div.card.an-panel', h('h3', 'Remember'), D.cranialNerveMnemonics.map(function (m) { return h('p', { style: 'margin-top:8px' }, h('b', m.title + ': '), m.text); })))));
+          return;
+        }
+        body.appendChild(h('div.an-grid', h('div.an-left', diagCard), panel));
+        diag = buildBrainstem({ activate: activate, step: step });
+        MT.clear(box); box.appendChild(diag.svg);
+        box.style.maxWidth = '520px';
+        buildPills();
+        if (st.tab === 'quiz') drawQuizPanel();
+        paint();
+      }
+      draw();
+      return function () { destroyMcq(st.mcqNode); };
+    }
+  });
+
+  /* =====================================================================
+     DERMATOMES, MYOTOMES, REFLEXES
+     ===================================================================== */
+  var MARKERS = {
+    front: { C3: [122, 78], C4: [94, 92], C5: [44, 192], C6: [14, 328], C7: [38, 360], C8: [64, 338], T1: [76, 196], T2: [84, 126], T3: [118, 108], T4: [114, 134], T6: [114, 156], T8: [114, 178], T10: [140, 202], T12: [118, 238], L1: [150, 262], L2: [116, 300], L3: [128, 352], L4: [132, 440], L5: [110, 468], S1: [80, 494] },
+    back: { C2: [140, 30], C4: [94, 92], S1: [80, 494], S2: [118, 358], S3: [118, 268], 'S4-5': [140, 282] }
+  };
+  var MARK_DESC = { C2: 'occipital protuberance', C3: 'supraclavicular fossa', C4: 'top of the acromioclavicular joint', C5: 'lateral antecubital fossa', C6: 'thumb', C7: 'middle finger', C8: 'little finger', T1: 'medial antecubital fossa', T2: 'apex of the axilla', T3: 'third intercostal space', T4: 'nipple line', T6: 'xiphoid level', T8: 'eighth intercostal space', T10: 'umbilicus', T12: 'inguinal ligament midpoint', L1: 'inguinal region', L2: 'mid-anterior thigh', L3: 'medial femoral condyle', L4: 'medial malleolus', L5: 'dorsum of the foot', S1: 'lateral heel', S2: 'popliteal fossa', S3: 'ischial tuberosity', 'S4-5': 'perianal area' };
+
+  function bodySvg(view, handlers) {
+    var svg = s('svg', { viewBox: '0 0 280 520', class: 'an-svg an-body-svg', role: 'group', 'aria-label': (view === 'front' ? 'Anterior' : 'Posterior') + ' body figure with dermatome key points. Tab between markers and press Enter to select.' });
+    function limb(d, w) {
+      svg.appendChild(s('path', { d: d, fill: 'none', stroke: 'var(--border-strong)', 'stroke-width': w + 3, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' }));
+      svg.appendChild(s('path', { d: d, fill: 'none', stroke: 'var(--surface-2)', 'stroke-width': w, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true' }));
+    }
+    function mir(d) { return d.replace(/(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)/g, function (m, x, y) { return (280 - Number(x)) + ' ' + y; }); }
+    var parts = [['M 92 92 L 62 190 L 46 280', 26], ['M 120 254 L 116 360', 38], ['M 116 360 L 114 452', 28]];
+    parts.forEach(function (p) { limb(p[0], p[1]); limb(mir(p[0]), p[1]); });
+    // torso, neck, head
+    var torso = 'M 92 88 Q 140 76 188 88 L 184 150 Q 176 190 172 215 L 184 256 L 96 256 L 108 215 Q 104 190 96 150 Z';
+    svg.appendChild(s('path', { d: torso, class: 'an-fig', 'aria-hidden': 'true' }));
+    svg.appendChild(s('rect', { x: 129, y: 62, width: 22, height: 24, class: 'an-fig', 'aria-hidden': 'true' }));
+    svg.appendChild(s('ellipse', { cx: 140, cy: 38, rx: 23, ry: 28, class: 'an-fig', 'aria-hidden': 'true' }));
+    // hands (palms forward in the front view) and feet
+    [0, 1].forEach(function (side) {
+      var m = function (x) { return side ? 280 - x : x; };
+      svg.appendChild(s('ellipse', { cx: m(42), cy: 302, rx: 14, ry: 18, class: 'an-fig', 'aria-hidden': 'true' }));
+      [['M 30 298 L 16 322', 8], ['M 36 316 L 33 344', 7], ['M 42 318 L 41 352', 7], ['M 48 316 L 50 344', 7], ['M 54 310 L 62 334', 6]].forEach(function (f) {
+        svg.appendChild(s('path', { d: f[0].replace(/(\d+)\s+(\d+)/g, function (q, x, y) { return m(Number(x)) + ' ' + y; }), fill: 'none', stroke: 'var(--border-strong)', 'stroke-width': f[1] + 2.5, 'stroke-linecap': 'round', 'aria-hidden': 'true' }));
+        svg.appendChild(s('path', { d: f[0].replace(/(\d+)\s+(\d+)/g, function (q, x, y) { return m(Number(x)) + ' ' + y; }), fill: 'none', stroke: 'var(--surface-2)', 'stroke-width': f[1], 'stroke-linecap': 'round', 'aria-hidden': 'true' }));
+      });
+      svg.appendChild(s('path', { d: 'M ' + m(114) + ' 452 L ' + m(108) + ' 486 L ' + m(88) + ' 490', class: 'an-fig', fill: 'none', 'stroke-width': 14, 'stroke-linecap': 'round', 'aria-hidden': 'true', style: 'stroke:var(--border-strong)' }));
+      svg.appendChild(s('path', { d: 'M ' + m(114) + ' 452 L ' + m(108) + ' 486 L ' + m(88) + ' 490', fill: 'none', 'stroke-width': 11, 'stroke-linecap': 'round', 'aria-hidden': 'true', style: 'stroke:var(--surface-2)' }));
+    });
+    if (view === 'front') {
+      svg.appendChild(s('circle', { cx: 140, cy: 202, r: 2.5, fill: 'var(--border-strong)', 'aria-hidden': 'true' }));
+      [114, 166].forEach(function (x) { svg.appendChild(s('circle', { cx: x, cy: 134, r: 3, fill: 'none', stroke: 'var(--border-strong)', 'stroke-width': 1.5, 'aria-hidden': 'true' })); });
+    } else svg.appendChild(s('path', { d: 'M 140 92 L 140 250', stroke: 'var(--border-strong)', 'stroke-dasharray': '3 4', fill: 'none', 'aria-hidden': 'true' }));
+    svg.appendChild(s('text', { x: 140, y: 514, 'font-size': 11, style: 'fill:var(--muted)' }, view === 'front' ? 'ANTERIOR (patient’s right on the left)' : 'POSTERIOR (patient’s right on the right)'));
+    var els = {};
+    var set = MARKERS[view];
+    Object.keys(set).forEach(function (lv) {
+      var p = set[lv], d = D.dermatomes.filter(function (x) { return x.level === lv; })[0];
+      var g = s('g', { class: 'an-mkr', tabindex: '0', role: 'button', 'data-level': lv, 'aria-label': 'Level ' + lv.replace('-', '–') + ': ' + d.point });
+      g.appendChild(s('circle', { cx: p[0], cy: p[1], r: 16, fill: 'transparent', stroke: 'none', style: 'fill:transparent;stroke:none' }));
+      g.appendChild(s('circle', { cx: p[0], cy: p[1], r: 11.5 }));
+      g.appendChild(s('text', { x: p[0], y: p[1] + 3.8, 'font-size': lv.length > 3 ? 8 : 10.5, style: 'text-anchor:middle' }, lv.replace('-', '–')));
+      g.addEventListener('click', function () { handlers.pick(lv); });
+      g.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handlers.pick(lv); } });
+      svg.appendChild(g); els[lv] = g;
+    });
+    return { svg: svg, els: els };
+  }
+
+  MT.registerTool({
+    id: 'dermatomes', title: 'Dermatomes & myotomes', category: 'anatomy', icon: '🧍', order: 4,
+    description: 'Dermatome key points on an anterior and posterior body figure, myotomes, reflex roots and a "which root?" quiz.',
+    keywords: ['dermatome', 'myotome', 'reflex', 'nerve root', 'radiculopathy', 'ISNCSCI', 'ASIA', 'spinal cord injury', 'C6 thumb', 'T10 umbilicus', 'L5', 'S1', 'biceps reflex', 'ankle jerk'],
+    render: function (container, ctx) {
+      var st = { tab: 'map', level: 'C6', mcqNode: null };
+      if (ctx.params && ctx.params[0] && D.dermatomes.some(function (d) { return d.level === ctx.params[0]; })) st.level = ctx.params[0];
+      var views = { front: bodySvg('front', { pick: pick }), back: bodySvg('back', { pick: pick }) };
+      var figs = h('div', { style: 'display:flex;flex-wrap:wrap;gap:10px;justify-content:center' },
+        [views.front, views.back].map(function (v) { return h('div', { style: 'flex:1 1 240px;max-width:330px;min-width:0' }, v.svg); }));
+      var ctrl = h('div.an-ctrl');
+      var panel = h('div.an-right', { 'aria-live': 'polite' }), body = h('div');
+      var tabs = tabsBar([{ id: 'map', label: 'Body map' }, { id: 'tables', label: 'Myotomes & reflexes' }, { id: 'quiz', label: 'Quiz: which root?' }], 'map', function (id) { setTab(id); });
+      var root = h('div.an-wrap', tabs, body, refLine(D.sources.slice(0, 1).concat(D.sources.slice(3, 4), D.sources.slice(5), ['Key sensory points follow the ISNCSCI examination. Dermatome maps vary between individuals and between texts (Lee et al. 2008 compared the classic maps); overlap means a single root lesion rarely produces complete anaesthesia.'])));
+      container.appendChild(root);
+      function levelsList() { return D.dermatomes.map(function (d) { return d.level; }); }
+      function dispLevel(l) { return l.replace('-', '–'); }
+      function pick(lv) { st.level = lv; paintMap(); var p = MT.$('.an-sel-card', panel); if (p && panel.getBoundingClientRect().top > (self.innerHeight || 800) * 0.55) scrollTo(p); }
+      function relatedMyotome(lv) {
+        return D.myotomes.filter(function (m) { return m.level === lv || (m.level.indexOf('-') > 0 && m.level.split('-').indexOf(lv.replace(/-.*/, '')) >= 0) || (lv === 'S4-5' && m.level === 'S3-S4'); });
+      }
+      function card(lv) {
+        var d = D.dermatomes.filter(function (x) { return x.level === lv; })[0];
+        var my = relatedMyotome(lv), rf = D.reflexes.filter(function (r) { return H.expandRoots(r.roots).indexOf(lv) >= 0; });
+        var i = levelsList().indexOf(lv);
+        return h('div.card.an-panel.an-sel-card', h('h3', 'Level ' + dispLevel(lv)), h('div.an-badges', MT.ui.badge(lv.charAt(0) === 'C' ? 'Cervical' : lv.charAt(0) === 'T' ? 'Thoracic' : lv.charAt(0) === 'L' ? 'Lumbar' : 'Sacral', 'info'), MT.ui.badge(d.view === 'both' ? 'Front and back' : (d.view === 'front' ? 'Front' : 'Back'))),
+          h('div.an-sign', h('b', 'Key sensory point (ISNCSCI)'), d.point),
+          h('h4', 'Skin area'), h('p', d.area),
+          h('h4', 'Myotome (movement)'), my.length ? my.map(function (m) { return h('div', { style: 'margin-bottom:6px' }, h('p', m.movement + (m.key ? ' – ISNCSCI key muscle: ' + m.keyMuscle : '')), m.muscles.length ? h('div.an-chips', m.muscles.map(function (id) { return chipLink(H.muscleById(id).name, '#/muscles/' + id); })) : null, h('p.an-note', m.note)); }) : h('p.muted', 'No standard myotome test at this level.'),
+          h('h4', 'Reflex'), rf.length ? rf.map(function (r) { return h('p', h('b', r.name + ' (' + H.rootsLabel(H.expandRoots(r.roots)) + '). '), r.test); }) : h('p.muted', 'No standard tendon reflex.'),
+          h('div', { style: 'display:flex;gap:8px;margin-top:12px' }, h('button.btn.btn-sm.btn-soft', { type: 'button', disabled: i <= 0, onclick: function () { pick(levelsList()[i - 1]); } }, '← ' + (i > 0 ? dispLevel(levelsList()[i - 1]) : '')), h('button.btn.btn-sm.btn-soft', { type: 'button', disabled: i >= levelsList().length - 1, onclick: function () { pick(levelsList()[i + 1]); } }, (i < levelsList().length - 1 ? dispLevel(levelsList()[i + 1]) : '') + ' →')));
+      }
+      function paintMap() {
+        ['front', 'back'].forEach(function (v) { Object.keys(views[v].els).forEach(function (lv) { views[v].els[lv].classList.toggle('is-sel', lv === st.level); }); });
+        var sel = MT.$('#an-lvl', ctrl); if (sel) sel.value = st.level;
+        MT.clear(panel); panel.appendChild(card(st.level));
+        var d = D.dermatomes.filter(function (x) { return x.level === st.level; })[0];
+        var note = (d.view === 'front' && !MARKERS.back[st.level]) ? 'This key point is on the front of the body.' : (!MARKERS.front[st.level] ? 'This key point is on the back of the body.' : '');
+        if (note) panel.firstChild.appendChild(h('p.an-note', { style: 'margin-top:8px' }, note));
+      }
+      function setTab(id) {
+        st.tab = id; destroyMcq(st.mcqNode); st.mcqNode = null;
+        var names = { map: 'Body map', tables: 'Myotomes & reflexes', quiz: 'Quiz: which root?' };
+        MT.$$('[role=tab]', tabs).forEach(function (b) { b.setAttribute('aria-selected', String(b.textContent === names[id])); });
+        draw();
+      }
+      function tbl(head, rows) { return h('div.table-wrap', h('table.table.an-tbl', h('thead', h('tr', head.map(function (t) { return h('th', { scope: 'col' }, t); }))), h('tbody', rows))); }
+      function draw() {
+        MT.clear(body);
+        if (st.tab === 'map') {
+          MT.clear(ctrl);
+          var sel = h('select', { id: 'an-lvl', 'aria-label': 'Choose a spinal level', onchange: function (e) { pick(e.target.value); } }, levelsList().map(function (l) { return h('option', { value: l, selected: l === st.level }, dispLevel(l) + ' – ' + cap(MARK_DESC[l] || D.dermatomes.filter(function (x) { return x.level === l; })[0].area.split(';')[0])); }));
+          ctrl.appendChild(h('label', { for: 'an-lvl' }, 'Level')); ctrl.appendChild(sel);
+          body.appendChild(h('div.an-grid', h('div.an-left', h('div.card.an-dcard', ctrl, figs, h('p.an-note', { style: 'margin-top:8px;text-align:center' }, 'Circles mark the standard ISNCSCI key sensory points, one per level (shown on one side for clarity). Levels without a circle on a view appear on the other view.'))), panel));
+          paintMap();
+        } else if (st.tab === 'tables') {
+          body.appendChild(h('div.stack',
+            h('h3', 'Myotomes (what each root moves)'),
+            tbl(['Root', 'Movement', 'Main muscles', 'ISNCSCI key muscle'], D.myotomes.map(function (m) { return h('tr', h('th', { scope: 'row' }, dispLevel(m.level)), h('td', m.movement), h('td', m.muscles.length ? m.muscles.map(function (id, i) { return [i ? ', ' : '', h('a', { href: '#/muscles/' + id }, H.muscleById(id).name)]; }) : '–'), h('td', m.key ? m.keyMuscle : '–')); })),
+            h('h3', 'Tendon reflexes and their roots'),
+            tbl(['Reflex', 'Roots', 'Nerve', 'How to test'], D.reflexes.map(function (r) { return h('tr', h('th', { scope: 'row' }, r.name), h('td', H.rootsLabel(H.expandRoots(r.roots))), h('td', nerveName(r.nerve).replace(/ \(.*\)$/, '')), h('td', r.test)); })),
+            h('div.grid', { style: '--min:260px' },
+              h('div.card-soft.an-panel', h('h4', { style: 'margin-top:0' }, 'Reflex grading'), h('ul', D.reflexGrades.map(function (g) { return h('li', h('b', g[0] + ' '), g[1]); }))),
+              h('div.card-soft.an-panel', h('h4', { style: 'margin-top:0' }, 'MRC power scale'), h('ul', D.powerGrades.map(function (g) { return h('li', h('b', g[0] + ' '), g[1]); })))),
+            h('h3', 'Dermatome key points'),
+            tbl(['Level', 'Key point', 'Skin area'], D.dermatomes.map(function (d) { return h('tr', h('th', { scope: 'row' }, dispLevel(d.level)), h('td', d.point), h('td', d.area)); }))));
+        } else {
+          st.mcqNode = mcq({ topic: 'dermatome', make: function () { return Q.dermatomeQuestion(); } });
+          body.appendChild(h('div.card.an-panel', h('h3', 'Which root?'), st.mcqNode));
+        }
+      }
+      draw();
+      return function () { destroyMcq(st.mcqNode); };
+    }
+  });
+
+  /* =====================================================================
+     MUSCLES
+     ===================================================================== */
+  MT.registerTool({
+    id: 'muscles', title: 'Muscle database', category: 'anatomy', icon: '💪', order: 5,
+    description: 'Searchable database of ' + D.muscles.length + ' muscles (limbs, back, thorax, abdominal wall, head and neck): origin, insertion, nerve and roots, action, blood supply, clinical notes; flashcards and quiz.',
+    keywords: ['muscle', 'origin', 'insertion', 'innervation', 'nerve supply', 'action', 'blood supply', 'flashcards', 'rotator cuff', 'hamstrings', 'quadriceps', 'deltoid', 'biceps'],
+    render: function (container, ctx) {
+      var f = { q: '', region: '', nerve: '', action: '' };
+      var st = { tab: 'browse', open: null, mcqNode: null, deck: [], idx: 0, shown: false, onlyNew: false, fs: { n: 0, known: 0 }, qkind: 'nerve' };
+      if (ctx.params && ctx.params[0] && H.muscleById(ctx.params[0])) { f.q = H.muscleById(ctx.params[0]).name; st.open = ctx.params[0]; }
+      var tabs = tabsBar([{ id: 'browse', label: 'Browse' }, { id: 'cards', label: 'Flashcards' }, { id: 'quiz', label: 'Quiz' }], 'browse', function (id) { setTab(id); });
+      var filterBar = h('div.card.an-panel'), body = h('div'), count = h('p.an-note', { 'aria-live': 'polite' });
+      var root = h('div.an-wrap', tabs, filterBar, body, refLine(['Moore KL, Dalley AF, Agur AMR. Clinically Oriented Anatomy, 8th–9th ed. (muscle tables: origins, insertions, innervation, actions)', 'Drake RL et al. Gray’s Anatomy for Students, 5th ed.', 'Where textbooks differ, the variation is shown in the muscle’s note; muscles with two nerve supplies are marked and left out of the "which nerve" quiz.']));
+      container.appendChild(root);
+
+      function norm(t) { return String(t || '').toLowerCase(); }
+      function filtered() {
+        var q = norm(f.q).trim(), tag = f.action ? D.actionTags.filter(function (t) { return t.id === f.action; })[0] : null;
+        var fam = f.nerve ? H.nerveFamily(f.nerve) : null;
+        return D.muscles.filter(function (m) {
+          if (f.region && m.region !== f.region) return false;
+          if (fam && fam.indexOf(m.nerve) < 0 && !(m.also && fam.indexOf(m.also) >= 0)) return false;
+          if (tag && !tag.re.test(m.action)) return false;
+          if (q) {
+            var hay = norm(m.name + ' ' + m.group + ' ' + m.origin + ' ' + m.insertion + ' ' + m.action + ' ' + nerveName(m.nerve) + ' ' + m.rootsText + ' ' + m.blood + ' ' + m.clinical);
+            return q.split(/\s+/).every(function (w) { return hay.indexOf(w) >= 0; });
+          }
+          return true;
+        });
+      }
+      function opt(v, l, sel) { return h('option', { value: v, selected: sel }, l); }
+      function drawFilters() {
+        MT.clear(filterBar);
+        var nerveIds = {}; D.muscles.forEach(function (m) { nerveIds[m.nerve] = 1; if (m.also) nerveIds[m.also] = 1; });
+        var nerveSel = h('select', { id: 'an-fn', onchange: function (e) { f.nerve = e.target.value; refresh(); } }, opt('', 'Any nerve', !f.nerve));
+        ['brachial', 'cervical', 'trunk', 'lumbosacral', 'cranial'].forEach(function (g) {
+          var og = h('optgroup', { label: { brachial: 'Brachial plexus', cervical: 'Cervical', trunk: 'Trunk', lumbosacral: 'Lumbosacral plexus', cranial: 'Cranial' }[g] });
+          D.nerves.filter(function (n) { return n.group === g && nerveIds[n.id]; }).forEach(function (n) { og.appendChild(opt(n.id, n.name.replace(/ \(CN [IVX]+\)/, '') + ' (' + n.rootsText.replace(/ \(.*\)$/, '') + ')', f.nerve === n.id)); });
+          if (og.children.length) nerveSel.appendChild(og);
+        });
+        filterBar.appendChild(h('div', h('label.sr-only', { for: 'an-fq' }, 'Search muscles'),
+          h('input.an-search', { id: 'an-fq', type: 'search', placeholder: 'Search by muscle, nerve, root, action, origin…', value: f.q, autocomplete: 'off', oninput: function (e) { f.q = e.target.value; refresh(true); } })));
+        filterBar.appendChild(h('div.an-fgrid', { style: 'margin-top:10px' },
+          h('label', 'Region', h('select', { id: 'an-fr', onchange: function (e) { f.region = e.target.value; refresh(); } }, [opt('', 'All regions', !f.region)].concat(D.regions.map(function (r) { return opt(r.id, r.label, f.region === r.id); })))),
+          h('label', 'Nerve', nerveSel),
+          h('label', 'Action', h('select', { id: 'an-fa', onchange: function (e) { f.action = e.target.value; refresh(); } }, [opt('', 'Any action', !f.action)].concat(D.actionTags.map(function (t) { return opt(t.id, t.label, f.action === t.id); })))),
+          h('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: function () { f = { q: '', region: '', nerve: '', action: '' }; st.open = null; drawFilters(); refresh(); } }, 'Reset filters')));
+        filterBar.appendChild(count);
+        if (f.nerve) {
+          var nv = H.nerveById(f.nerve);
+          filterBar.appendChild(h('div.an-sign', h('b', nv.name), nv.rootsText + (nv.note ? '. ' + nv.note : '')));
+        }
+      }
+      function mdetail(m) {
+        var nv = H.nerveById(m.nerve), al = m.also ? H.nerveById(m.also) : null;
+        return h('div.an-mdetail', h('dl', { style: 'display:grid;gap:8px;margin:0' }, [
+          ['Origin', m.origin], ['Insertion', m.insertion],
+          ['Innervation', [h('b', nv.name), ' – roots ' + m.rootsText, al ? ' (also ' + al.name + ')' : '', ' ', h('button.an-chip', { type: 'button', style: 'min-height:26px;margin-left:6px', onclick: function () { f.nerve = m.nerve; drawFilters(); refresh(); } }, 'Show this nerve’s muscles')]],
+          ['Action', m.action], ['Blood supply', m.blood], ['Clinical note', m.clinical]].concat(m.note ? [['Textbook note', m.note]] : []).map(function (r) { return [h('dt', { style: 'font-size:.74rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700' }, r[0]), h('dd', { style: 'margin:0' }, r[1])]; })));
+      }
+      function listView() {
+        var ms = filtered();
+        count.textContent = ms.length + ' of ' + D.muscles.length + ' muscles';
+        var wrap = h('div.an-mlist');
+        if (!ms.length) return MT.ui.empty('🔍', 'No muscles match', 'Try fewer words or reset the filters.');
+        ms.forEach(function (m) {
+          var open = st.open === m.id;
+          var row = h('button.an-mrow', { type: 'button', 'aria-expanded': String(open), onclick: function () { st.open = open ? null : m.id; drawBody(); var el = MT.$('[data-mid="' + m.id + '"]', body); if (el && !open) scrollTo(el); } },
+            h('b', m.name), h('span.muted.small', D.regions.filter(function (r) { return r.id === m.region; })[0].label + ' · ' + m.group), h('span.small', nerveName(m.nerve).replace(/ \(.*\)$/, '') + ' (' + m.rootsText + ')' + (m.dual ? ' + ' + nerveName(m.also).replace(/ \(.*\)$/, '') : '') + ' – ' + Q.shortAction(m)));
+          var item = h('div', { 'data-mid': m.id }, row);
+          if (open) item.appendChild(mdetail(m));
+          wrap.appendChild(item);
+        });
+        return wrap;
+      }
+      function newDeck() {
+        var ms = filtered(), kn = stats().cards;
+        if (st.onlyNew) ms = ms.filter(function (m) { return kn[m.id] !== 'k'; });
+        st.deck = Q.shuffle(ms.map(function (m) { return m.id; })); st.idx = 0; st.shown = false;
+      }
+      function cardView() {
+        MT.clear(body);
+        var top = h('div.an-ctrl', h('label.check', h('input', { type: 'checkbox', checked: st.onlyNew, onchange: function (e) { st.onlyNew = e.target.checked; newDeck(); drawBody(); } }), ' Hide cards I already know'), h('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: function () { newDeck(); drawBody(); } }, 'Shuffle'), h('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: function () { var s2 = stats(); s2.cards = {}; MT.store.set(STATS_KEY, s2); newDeck(); drawBody(); } }, 'Forget my progress'));
+        body.appendChild(top);
+        if (!st.deck.length) { body.appendChild(MT.ui.empty('🎉', 'No cards in this deck', 'Change the filters, or untick "Hide cards I already know".')); return; }
+        if (st.idx >= st.deck.length) {
+          body.appendChild(h('div.card.an-panel', h('h3', 'Deck finished'), h('p', 'You marked ' + st.fs.known + ' of ' + st.fs.n + ' cards as known this round.'), h('button.btn.btn-primary', { type: 'button', style: 'margin-top:8px', onclick: function () { st.fs = { n: 0, known: 0 }; newDeck(); drawBody(); } }, 'Start again')));
+          return;
+        }
+        var m = H.muscleById(st.deck[st.idx]), nv = H.nerveById(m.nerve);
+        body.appendChild(h('div.an-prog', { role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': st.deck.length, 'aria-valuenow': st.idx, 'aria-label': 'Deck progress' }, h('i', { style: 'width:' + Math.round(100 * st.idx / st.deck.length) + '%' })));
+        body.appendChild(h('p.an-note', 'Card ' + (st.idx + 1) + ' of ' + st.deck.length + '. Say the origin, insertion, nerve and action aloud, then reveal.'));
+        var face = h('button.an-flash', { type: 'button', 'aria-label': st.shown ? 'Card answer shown' : 'Reveal answer', onclick: function () { st.shown = !st.shown; cardView(); var b = MT.$('.an-flash', body); if (b) b.focus(); } },
+          h('div.q', m.name), h('div.muted.small', D.regions.filter(function (r) { return r.id === m.region; })[0].label + ' · ' + m.group));
+        if (st.shown) face.appendChild(h('dl', [['Origin', m.origin], ['Insertion', m.insertion], ['Nerve', nv.name + ' (' + m.rootsText + ')' + (m.dual ? ' + ' + nerveName(m.also) : '')], ['Action', m.action], ['Blood supply', m.blood], ['Clinical', m.clinical]].map(function (r) { return [h('dt', r[0]), h('dd', r[1])]; })));
+        else face.appendChild(h('div.btn.btn-soft', 'Tap to reveal'));
+        body.appendChild(face);
+        if (st.shown) body.appendChild(h('div.an-fcr', h('button.btn.btn-soft', { type: 'button', onclick: function () { rate(m, false); } }, 'Again'), h('button.btn.btn-primary', { type: 'button', onclick: function () { rate(m, true); } }, 'Got it')));
+      }
+      function rate(m, ok) {
+        var s2 = stats(); s2.cards[m.id] = ok ? 'k' : 'a'; MT.store.set(STATS_KEY, s2);
+        st.fs.n++; if (ok) st.fs.known++;
+        if (!ok) st.deck.push(m.id);
+        st.idx++; st.shown = false; cardView();
+        var b = MT.$('.an-flash', body); if (b) b.focus({ preventScroll: true });
+      }
+      function quizView() {
+        MT.clear(body);
+        var ms = filtered();
+        var seg = MT.ui.segmented([{ value: 'nerve', label: 'Which nerve?' }, { value: 'action', label: 'Main action?' }, { value: 'mixed', label: 'Mixed' }], st.qkind, function (v) { st.qkind = v; quizView(); });
+        body.appendChild(h('div.an-ctrl', seg, h('span.an-note', 'Uses the muscles currently shown by the filters (' + ms.length + ').')));
+        var pool = ms;
+        if (pool.length < 4) { body.appendChild(MT.ui.empty('🔍', 'Too few muscles', 'Widen the filters to at least 4 muscles to build a quiz.')); return; }
+        destroyMcq(st.mcqNode);
+        st.mcqNode = mcq({ topic: 'muscles-' + (st.qkind === 'mixed' ? 'mixed' : st.qkind), make: function () {
+          var kind = st.qkind === 'mixed' ? (Math.random() < 0.5 ? 'nerve' : 'action') : st.qkind;
+          if (kind === 'nerve') { var np = pool.filter(function (m) { return !m.dual; }); if (np.length) return Q.nerveQuestion(Q.pick(np)); }
+          return Q.actionQuestion(Q.pick(pool));
+        } });
+        body.appendChild(h('div.card.an-panel', st.mcqNode));
+      }
+      function drawBody() {
+        if (st.tab === 'browse') { MT.clear(body); body.appendChild(listView()); }
+        else if (st.tab === 'cards') cardView();
+        else quizView();
+      }
+      function refresh(typing) {
+        var ms = filtered();
+        if (st.tab === 'browse') { MT.clear(body); body.appendChild(listView()); }
+        else { count.textContent = ms.length + ' of ' + D.muscles.length + ' muscles'; if (st.tab === 'cards') { newDeck(); cardView(); } else quizView(); }
+        if (typing) return;
+      }
+      function setTab(id) {
+        st.tab = id; destroyMcq(st.mcqNode); st.mcqNode = null;
+        var names = { browse: 'Browse', cards: 'Flashcards', quiz: 'Quiz' };
+        MT.$$('[role=tab]', tabs).forEach(function (b) { b.setAttribute('aria-selected', String(b.textContent === names[id])); });
+        if (id === 'cards') { st.fs = { n: 0, known: 0 }; newDeck(); }
+        count.textContent = filtered().length + ' of ' + D.muscles.length + ' muscles';
+        drawBody();
+      }
+      drawFilters(); count.textContent = filtered().length + ' of ' + D.muscles.length + ' muscles'; drawBody();
+      if (st.open) { var el = MT.$('[data-mid="' + st.open + '"]', body); if (el) setTimeout(function () { scrollTo(el); }, 50); }
+      return function () { destroyMcq(st.mcqNode); };
+    }
+  });
+
+  /* =====================================================================
+     SKULL FORAMINA
+     ===================================================================== */
+  MT.registerTool({
+    id: 'skull-foramina', title: 'Skull foramina', category: 'anatomy', icon: '💀', order: 6,
+    description: 'Openings of the skull base, orbit, face and palate with their contents, clinical notes and a quiz in both directions.',
+    keywords: ['foramen', 'foramina', 'skull base', 'cranial fossa', 'foramen ovale', 'foramen rotundum', 'jugular foramen', 'superior orbital fissure', 'optic canal', 'carotid canal', 'foramen magnum'],
+    render: function (container, ctx) {
+      var st = { tab: 'browse', q: '', fossa: '', open: ctx.params && ctx.params[0] || null, mcqNode: null };
+      var tabs = tabsBar([{ id: 'browse', label: 'Browse' }, { id: 'quiz', label: 'Quiz' }], 'browse', function (id) { setTab(id); });
+      var body = h('div'), root = h('div.an-wrap', tabs, body, refLine(['Moore KL et al. Clinically Oriented Anatomy, 8th–9th ed. (Head: cranial base and its foramina)', 'Standring S (ed). Gray’s Anatomy, 42nd ed. (Cranial fossae)', 'Mnemonic for the middle cranial fossa: "Standing Room Only" = Superior orbital fissure, foramen Rotundum, foramen Ovale (V1, V2, V3); foramen Spinosum carries the middle meningeal artery.']));
+      container.appendChild(root);
+      function setTab(id) {
+        st.tab = id; destroyMcq(st.mcqNode); st.mcqNode = null;
+        var names = { browse: 'Browse', quiz: 'Quiz' };
+        MT.$$('[role=tab]', tabs).forEach(function (b) { b.setAttribute('aria-selected', String(b.textContent === names[id])); });
+        draw();
+      }
+      function draw() {
+        MT.clear(body);
+        if (st.tab === 'quiz') {
+          st.mcqNode = mcq({ topic: 'foramina', make: function () { return Q.foramenQuestion(); } });
+          body.appendChild(h('div.card.an-panel', h('h3', 'Skull foramina quiz'), h('p.an-note', 'Each question has exactly one correct opening or structure. The foramen lacerum is left out on purpose: nothing of importance passes completely through it.'), st.mcqNode));
+          return;
+        }
+        var list = h('div'), count = h('p.an-note', { 'aria-live': 'polite' });
+        function fill() {
+          MT.clear(list);
+          var q = st.q.toLowerCase().trim(), n = 0;
+          Object.keys(D.fossaLabels).forEach(function (fk) {
+            if (st.fossa && st.fossa !== fk) return;
+            var items = D.foramina.filter(function (x) { return x.fossa === fk && (!q || (x.name + ' ' + x.location + ' ' + x.contents.join(' ') + ' ' + x.note).toLowerCase().indexOf(q) >= 0); });
+            if (!items.length) return;
+            n += items.length;
+            list.appendChild(h('h3.an-fossa', D.fossaLabels[fk]));
+            var wrap = h('div.an-mlist');
+            items.forEach(function (x) {
+              var open = st.open === x.id;
+              var row = h('button.an-mrow', { type: 'button', 'aria-expanded': String(open), onclick: function () { st.open = open ? null : x.id; fill(); } }, h('b', x.name), h('span.muted.small', x.location), h('span.small', x.contents.slice(0, 3).join('; ') + (x.contents.length > 3 ? '; …' : '')));
+              var it = h('div', { 'data-fid': x.id }, row);
+              if (open) it.appendChild(h('div.an-mdetail', h('h4', { style: 'margin:0 0 4px;font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)' }, 'Passes through'), h('ul', { style: 'margin:0 0 8px;padding-left:1.2em' }, x.contents.map(function (c) { return h('li', c); })), x.note ? h('div.an-sign', h('b', 'Clinical note'), x.note) : null));
+              wrap.appendChild(it);
+            });
+            list.appendChild(wrap);
+          });
+          count.textContent = n + ' of ' + D.foramina.length + ' openings';
+          if (!n) list.appendChild(MT.ui.empty('🔍', 'No openings match', 'Try a nerve, vessel or bone name.'));
+        }
+        var fs = h('select', { 'aria-label': 'Region', onchange: function (e) { st.fossa = e.target.value; fill(); } }, [h('option', { value: '' }, 'All regions')].concat(Object.keys(D.fossaLabels).map(function (k) { return h('option', { value: k }, D.fossaLabels[k]); })));
+        body.appendChild(h('div.card.an-panel', h('label.sr-only', { for: 'an-sq' }, 'Search openings'), h('input.an-search', { id: 'an-sq', type: 'search', placeholder: 'Search by foramen, nerve, vessel or bone…', value: st.q, oninput: function (e) { st.q = e.target.value; fill(); } }), h('div.an-ctrl', { style: 'margin:10px 0 0' }, fs, count)));
+        body.appendChild(list); fill();
+        if (st.open) { var el = MT.$('[data-fid="' + st.open + '"]', body); if (el) setTimeout(function () { scrollTo(el); }, 50); }
+      }
+      draw();
+      return function () { destroyMcq(st.mcqNode); };
+    }
+  });
+
+  /* ---- site search ---- */
+  MT.registerSearch(function (q) {
+    q = String(q || '').toLowerCase().trim();
+    if (q.length < 3) return [];
+    var out = [];
+    D.muscles.forEach(function (m) { if (out.length < 5 && m.name.toLowerCase().indexOf(q) >= 0) out.push({ title: m.name, description: 'Muscle · ' + nerveName(m.nerve).replace(/ \(.*\)$/, '') + ' (' + m.rootsText + ')', href: '#/muscles/' + m.id, icon: '💪' }); });
+    D.foramina.forEach(function (x) { if (out.length < 8 && (x.name.toLowerCase().indexOf(q) >= 0 || x.contents.join(' ').toLowerCase().indexOf(q) >= 0)) out.push({ title: x.name, description: 'Skull opening · ' + x.contents[0], href: '#/skull-foramina/' + x.id, icon: '💀' }); });
+    D.cranial.forEach(function (c) { if (out.length < 10 && (c.name.toLowerCase().indexOf(q) >= 0 || ('cn ' + c.numeral.toLowerCase()) === q)) out.push({ title: 'CN ' + c.numeral + ' ' + c.name, description: 'Cranial nerve · ' + c.modality, href: '#/cranial-nerves/' + c.id, icon: '🧠' }); });
+    return out;
+  });
 
   /* =====================================================================
      REGISTRATION

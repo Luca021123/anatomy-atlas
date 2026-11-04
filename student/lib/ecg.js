@@ -696,13 +696,14 @@
       var a = b.pIdx >= 0 ? ev.atrial[b.pIdx] : null;
       var conducted = !!(a && a.conducted);
       beats.push({
-        t: b.on, qrsOn: b.on, qrsOff: b.on + b.dur, tPeak: b.tPeak, tEnd: b.tEnd,
+        t: b.on, qrsOn: b.on, qrsOff: b.on + b.dur, tPeak: b.tPeak, tEnd: b.tEnd, pKind: a ? a.kind : null,
         kind: b.kind, morph: b.morph, conducted: conducted,
         pr: conducted ? Math.round((b.on - a.on) * 1000) : null,
         qrs: Math.round(b.dur * 1000), qt: Math.round((b.tEnd - b.on) * 1000), rr: null
       });
     });
     for (var i = 1; i < beats.length; i++) beats[i].rr = Math.round((beats[i].t - beats[i - 1].t) * 1000);
+    function pOf(b) { return b.pKind ? { kind: b.pKind } : null; }
     var firstIdx = ev.vent.indexOf(ev.vent.filter(function (b) { return b.on >= -0.02; })[0]);
     if (beats.length && firstIdx > 0) beats[0].rr = Math.round((beats[0].t - ev.vent[firstIdx - 1].on) * 1000);
     var vByP = {};
@@ -728,17 +729,24 @@
     var PRI = { N: 0, J: 1, E: 2, P: 3, V: 4 };
     var domKind = Object.keys(kinds).sort(function (a, b) { return (kinds[b] - kinds[a]) || (PRI[a] - PRI[b]); })[0];
     var dom = main.filter(function (b) { return b.kind === domKind; });
-    var prs = dom.map(function (b) { return b.pr; }).filter(isNum);
+    // PR only for discrete atrial depolarisations (an F wave → QRS interval is not a PR interval).
+    var prs = dom.filter(function (b) { var a = pOf(b); return a && (a.kind === 'sinus' || a.kind === 'ectopic'); }).map(function (b) { return b.pr; }).filter(isNum);
     var rrMed = rr.length ? median(rr) : null;
-    var qtMed = dom.length ? median(dom.map(function (b) { return b.qt; })) : null;
+    var qtOK = dom.length && domKind !== 'V' && p.rhythm !== 'vf' && p.rhythm !== 'torsades';
+    var withRR = dom.filter(function (b) { return isNum(b.rr); });
     var intervals = {
       pr: prs.length && sd(prs) < 15 ? Math.round(median(prs)) : null,
       prVariable: prs.length > 1 && sd(prs) >= 15,
       qrs: dom.length ? Math.round(median(dom.map(function (b) { return b.qrs; }))) : null,
-      qt: qtMed != null && (p.rhythm !== 'vf' && p.rhythm !== 'torsades') ? Math.round(qtMed) : null,
+      qt: qtOK ? Math.round(median(dom.map(function (b) { return b.qt; }))) : null,
       rr: rrMed != null ? Math.round(rrMed) : null
     };
-    if (intervals.qt && intervals.rr) intervals.qtc = { bazett: Math.round(qtc(intervals.qt, intervals.rr, 'bazett')), fridericia: Math.round(qtc(intervals.qt, intervals.rr, 'fridericia')), framingham: Math.round(qtc(intervals.qt, intervals.rr, 'framingham')), hodges: Math.round(qtc(intervals.qt, intervals.rr, 'hodges')) };
+    if (intervals.qt && withRR.length) {
+      // QTc per beat from its own preceding RR, then the median (robust when RR varies, e.g. AF or bigeminy).
+      intervals.qtc = {};
+      ['bazett', 'fridericia', 'framingham', 'hodges'].forEach(function (m) { intervals.qtc[m] = Math.round(median(withRR.map(function (b) { return qtc(b.qt, b.rr, m); }))); });
+      intervals.qtRR = Math.round(median(withRR.map(function (b) { return b.rr; })));
+    }
     var nm = prep[domKind === 'E' ? 'escape' : domKind === 'P' ? 'paced' : domKind === 'V' ? (p.rhythm === 'vt' ? 'vt' : 'pvc') : 'normal'];
     return {
       rhythm: p.rhythm, beats: beats, pWaves: pWaves, rr: rr, pp: pp, spikes: ev.spikes.filter(function (t) { return t >= 0 && t <= dur; }),
@@ -763,12 +771,12 @@
     var names = ['I', 'II', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6'].filter(function (l) { return leads[l]; });
     if (!names.length) names = Object.keys(leads);
     var n = leads[names[0]].length, vel = new Float64Array(n), i;
-    for (i = 1; i < n - 1; i++) { var s = 0; for (var k = 0; k < names.length; k++) { var a = leads[names[k]]; s += Math.abs(a[i + 1] - a[i - 1]); } vel[i] = s; }
+    for (i = 1; i < n - 1; i++) { var s = 0; for (var k = 0; k < names.length; k++) { var a = leads[names[k]]; s += Math.abs(a[i + 1] - a[i - 1]); } vel[i] = s * fs / 2; } // mV/s
     var w = Math.max(1, Math.round(0.02 * fs)), sm = new Float64Array(n), acc = 0;
     for (i = 0; i < n; i++) { acc += vel[i]; if (i >= w) acc -= vel[i - w]; sm[i] = acc / Math.min(i + 1, w); }
     var sorted = Array.prototype.slice.call(sm).sort(function (a, b) { return a - b; });
     var hi = sorted[Math.floor(0.995 * (n - 1))], thr = 0.3 * hi, out = [];
-    if (!(hi > 0)) return out;
+    if (!(hi > 40)) return out; // no QRS-like slopes (summed spatial velocity below 40 mV/s): e.g. asystole
     i = 0;
     while (i < n) {
       if (sm[i] > thr) {
@@ -788,7 +796,7 @@
 
   function windows(ecg, fs) {
     var ann = ecg && ecg.annotations;
-    if (ann && ann.beats && ann.beats.length) return ann.beats.filter(function (b) { return b.kind !== 'V' || ann.rhythm === 'vt'; }).map(function (b) { return { on: b.qrsOn, off: b.qrsOff, kind: b.kind }; });
+    if (ann && ann.beats) return ann.beats.filter(function (b) { return b.kind !== 'V' || ann.rhythm === 'vt'; }).map(function (b) { return { on: b.qrsOn, off: b.qrsOff, kind: b.kind }; });
     return ecg ? detectQRS(getLeads(ecg), fs) : [];
   }
   function baselineAt(arr, fs, t) {
@@ -806,8 +814,8 @@
     opts = opts || {};
     var L = getLeads(ecg), fs = (ecg && ecg.fs) || opts.fs || 500, method = opts.method || 'area';
     if (!L || !L.I || !(L.aVF || L.II)) return null;
-    var avf = aVFof(L), wins = windows(ecg && ecg.leads ? ecg : null, fs);
-    if (!wins.length) wins = detectQRS(L, fs);
+    var avf = aVFof(L), generated = !!(ecg && ecg.leads && ecg.annotations), wins = windows(generated ? ecg : null, fs);
+    if (!wins.length && !generated) wins = detectQRS(L, fs);
     if (!wins.length) return null;
     var dom = wins;
     var sI = 0, sF = 0;

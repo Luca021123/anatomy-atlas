@@ -42,6 +42,8 @@
   /** Fixed decimals with trailing zeros trimmed: ft(1.50, 2) -> "1.5". */
   function ft(x, dp) { var s = fx(x, dp); return s.indexOf('.') >= 0 ? s.replace(/\.?0+$/, '') : s; }
   function clamp(x, lo, hi) { return Math.min(hi, Math.max(lo, x)); }
+  /** Strip floating-point noise from unit-converted inputs before threshold comparisons (35 g/L -> 3.5 g/dL exactly). */
+  function q(x) { return rnd(x, 6); }
   /** Sum points of ticked bool inputs and chosen radio/select options (mirrors MT.calc.sumPoints). */
   function points(inputs, v) {
     var t = 0;
@@ -469,7 +471,7 @@
     formula: 'One point each: active cancer; paralysis/paresis/plaster; bedridden ≥3 days or major surgery ≤12 weeks; localised deep-vein tenderness; entire leg swollen; calf swelling ≥3 cm; pitting oedema (symptomatic leg); collateral superficial veins; previously documented DVT.\nMinus 2: alternative diagnosis at least as likely.\nTwo-level (Wells 2003, NICE): ≥2 likely, ≤1 unlikely. Three-level (Wells 1997): ≤0 low, 1–2 moderate, ≥3 high.',
     pearls: [
       'Score the alternative diagnosis honestly: the −2 applies whenever another diagnosis is at least as likely as DVT.',
-      'A negative D-dimer rules out DVT only in the “unlikely” group (Wells 2003: 0.4% VTE at 3 months when ultrasound was omitted).',
+      'A negative D-dimer rules out DVT only in the “unlikely” group (Wells 2003: 0.4% VTE at 3 months after DVT was ruled out with the D-dimer strategy).',
       'D-dimer is often raised in pregnancy, cancer, after surgery and in older people; the Wells studies did not include pregnant women.',
       'The 3%/17%/75% figures come from the original nine-item 1997 score, before “previously documented DVT” was added.'
     ],
@@ -564,7 +566,7 @@
       }
       return {
         value: 'Positive', label: 'PERC', band: 'warn', title: 'PERC positive — cannot rule out with PERC',
-        interpretation: n + ' criterion' + (n === 1 ? ' is' : 'a are') + ' present. Continue the work-up: Wells or simplified Geneva score, then D-dimer or imaging.',
+        interpretation: n + (n === 1 ? ' criterion is' : ' criteria are') + ' present. Continue the work-up: Wells or simplified Geneva score, then D-dimer or imaging.',
         details: [{ label: 'Criteria present', value: n + ' of 8' }], warnings: []
       };
     },
@@ -668,8 +670,8 @@
     ],
     compute: function (v) {
       var all = qtcAll(v.qt, v.hr), fem = female(v);
-      var key = v.formula || 'fridericia', q = all[key];
-      var cls = qtcClass(q, fem), lim = fem ? 460 : 450;
+      var key = v.formula || 'fridericia', qtc = rnd(all[key], 0);
+      var cls = qtcClass(qtc, fem), lim = fem ? 460 : 450;
       var r = {
         marked: { band: 'danger', title: 'Markedly prolonged QTc (>500 ms)', text: 'QTc above 500 ms is associated with a 2–3-fold higher risk of torsades de pointes. Stop or avoid QT-prolonging drugs where possible, correct potassium and magnesium, and monitor the ECG.' },
         long: { band: 'warn', title: 'Prolonged QTc (≥' + lim + ' ms in ' + (fem ? 'women' : 'men') + ')', text: 'Review QT-prolonging drugs and electrolytes (K⁺, Mg²⁺, Ca²⁺); repeat the ECG and consider congenital long-QT syndrome if unexplained.' },
@@ -681,13 +683,13 @@
       });
       details.push({ label: 'RR interval', value: fx(all.rr * 1000, 0) + ' ms' });
       var warnings = [];
-      var classes = ['bazett', 'fridericia', 'framingham', 'hodges'].map(function (k) { return qtcClass(all[k], fem); });
+      var classes = ['bazett', 'fridericia', 'framingham', 'hodges'].map(function (k) { return qtcClass(rnd(all[k], 0), fem); });
       if (classes.some(function (c) { return c !== cls; })) warnings.push('The formulas disagree on the category at this heart rate — interpret with caution.');
       if (v.hr > 90 || v.hr < 60) warnings.push('Heart rate ' + fx(v.hr, 0) + '/min: Bazett over-corrects at fast rates and under-corrects at slow rates; prefer Fridericia or Framingham, and re-measure at a rate nearer 60/min if you can.');
       if (isNum(v.qrs) && v.qrs >= 120) warnings.push('QRS ≥120 ms lengthens the QT; the QTc limits assume normal conduction. Consider the JT interval or a QRS-adjusted QT.');
-      if (isNum(v.baseline) && q - v.baseline >= 60) warnings.push('QTc has risen by ' + fx(q - v.baseline, 0) + ' ms from baseline (≥60 ms): high risk of torsades — review the causative drug promptly.');
+      if (isNum(v.baseline) && qtc - v.baseline >= 60) warnings.push('QTc has risen by ' + fx(qtc - v.baseline, 0) + ' ms from baseline (≥60 ms): high risk of torsades — review the causative drug promptly.');
       return {
-        value: fx(q, 0), unit: 'ms', label: 'QTc (' + QTC_NAMES[key] + ')', band: r.band, title: r.title,
+        value: fx(qtc, 0), unit: 'ms', label: 'QTc (' + QTC_NAMES[key] + ')', band: r.band, title: r.title,
         interpretation: r.text, details: details, warnings: warnings
       };
     },
@@ -761,7 +763,7 @@
     return 1 - Math.pow(c.s0, Math.exp(lp - c.mean));
   }
   function framResult(risk, extraDetails) {
-    var p = risk * 100;
+    var p = rnd(risk * 100, 1);
     // Canadian Cardiovascular Society 2021: FRS <10% low, 10–19.9% intermediate, ≥20% high.
     var cat = p >= 20 ? { band: 'danger', title: 'High risk (≥20%)', text: 'High 10-year risk: statin therapy is recommended in CCS guidelines, alongside lifestyle measures and blood-pressure control.' }
       : p >= 10 ? { band: 'warn', title: 'Intermediate risk (10–19.9%)', text: 'Intermediate risk: discuss statin therapy (CCS 2021 recommends it when LDL-C, non-HDL-C or apoB is raised, or with additional risk factors), plus lifestyle measures.' }
@@ -957,7 +959,7 @@
       var wt = used === 'actual' ? tbw : used === 'ideal' ? ibw : abw;
       var cl = cgCrCl(v.age, wt, v.creat, fem);
       var label = { actual: 'actual', ideal: 'ideal', adjusted: 'adjusted' };
-      var band = cl >= 60 ? 'ok' : cl >= 30 ? 'warn' : 'danger';
+      var clr = rnd(cl, 0), band = clr >= 60 ? 'ok' : clr >= 30 ? 'warn' : 'danger';
       var warnings = [];
       if (v.height < 152.4) warnings.push('Height under 152 cm (5 ft): the Devine formula extrapolates below its base height, so ideal and adjusted weights are uncertain.');
       if (used === 'ideal' && tbw < ibw) warnings.push('Actual weight is below ideal weight: using ideal weight overestimates clearance.');
@@ -975,11 +977,11 @@
         warnings: warnings
       };
     },
-    formula: 'CrCl (mL/min) = (140 − age) × weight (kg) ÷ (72 × creatinine [mg/dL]) × 0.85 if female\nIn SI units the 72 × Scr term is equivalent to 0.8136 × Scr (µmol/L).\nIdeal body weight (Devine): 50 kg (men) or 45.5 kg (women) + 2.3 kg per inch above 5 ft\nAdjusted body weight = IBW + 0.4 × (actual − IBW)\nAutomatic choice (Winter 2012): actual weight if BMI <18.5 or actual ≤ IBW; IBW if BMI 18.5–24.9; adjusted weight if BMI ≥25.',
+    formula: 'CrCl (mL/min) = (140 − age) × weight (kg) ÷ (72 × creatinine [mg/dL]) × 0.85 if female\nSI form: (140 − age) × weight × 1.23 ÷ creatinine (µmol/L) in men, × 1.04 in women (72 ÷ 88.42 ≈ 0.814).\nIdeal body weight (Devine): 50 kg (men) or 45.5 kg (women) + 2.3 kg per inch above 5 ft\nAdjusted body weight = IBW + 0.4 × (actual − IBW)\nAutomatic choice (Winter 2012): actual weight if BMI <18.5 or actual ≤ IBW; IBW if BMI 18.5–24.9; adjusted weight if BMI ≥25.',
     pearls: [
       'Winter 2012 (3,678 patients with 24-h urine collections): actual weight was unbiased in underweight patients, ideal weight in normal-weight patients, and adjusted weight (0.4) was least biased in overweight and obese patients.',
       'Rounding low creatinine up to 0.8 or 1.0 mg/dL in older patients did not improve accuracy (Winter 2012).',
-      'Cockcroft and Gault derived the formula in 1976 from 249 men using non-standardised creatinine; modern IDMS-standardised assays give slightly lower values, so CrCl runs higher.',
+      'Derived in 1976 from 249 men with older creatinine assays; IDMS-standardised creatinine reads slightly lower, so the formula may overestimate clearance a little.',
       'Check the drug’s own labelling: some newer drugs specify eGFR, and local antimicrobial or chemotherapy protocols may prescribe a weight scalar.'
     ],
     references: [R.cg1976, R.winter2012, R.devine1974, R.bauer1983]
@@ -991,7 +993,8 @@
   function cat3(x, lo, hi) { return x < lo ? 1 : x <= hi ? 2 : 3; }
   /** Category in both unit systems; the more inclusive (higher) one is used, flagged when they differ. */
   function albCat(mgmmol, test) {
-    var mgg = mgmmol * MGG_PER_MGMMOL;
+    var mgg = q(mgmmol * MGG_PER_MGMMOL);
+    mgmmol = q(mgmmol);
     var t = test === 'pcr' ? { si: [15, 50], conv: [150, 500] } : { si: [3, 30], conv: [30, 300] };
     var a = cat3(mgmmol, t.si[0], t.si[1]), b = cat3(mgg, t.conv[0], t.conv[1]);
     return { cat: Math.max(a, b), si: a, conv: b, grey: a !== b };
@@ -1069,7 +1072,7 @@
       if (!v.chronic) warnings.push('CKD needs abnormalities for more than 3 months — confirm with repeat tests before labelling CKD.');
       var refer = [];
       if (g.min < 30) refer.push('eGFR <30');
-      if (hasA && v.acr >= 30) refer.push('ACR ≥30 mg/mmol (≥300 mg/g)');
+      if (hasA && q(v.acr) >= 30) refer.push('ACR ≥30 mg/mmol (≥300 mg/g)');
       if (!hasA) {
         return {
           value: g.id, label: 'KDIGO category', band: egfrBand(g), title: g.id + ' — ' + g.name,
@@ -1196,7 +1199,7 @@
     keywords: ['child pugh', 'child-turcotte-pugh', 'ctp', 'cirrhosis', 'liver', 'hepatic impairment', 'drug dosing'],
     inputs: IN_CP,
     compute: function (v) {
-      var pb = cpBili(v.bili), pa = cpAlb(v.alb), pi = cpInr(v.inr);
+      var pb = cpBili(q(v.bili)), pa = cpAlb(q(v.alb)), pi = cpInr(q(v.inr));
       var s = pb + pa + pi + Number(v.ascites) + Number(v.enceph);
       var cls = s <= 6 ? 'A' : s <= 9 ? 'B' : 'C';
       var r = {
@@ -1205,7 +1208,7 @@
         C: { band: 'danger', title: 'Class C (10–15 points) — decompensated', text: 'Child–Pugh C: decompensated disease with poor prognosis. Corresponds to “severe” hepatic impairment in drug labelling; discuss with a hepatology/transplant centre.' }
       }[cls];
       var warnings = [];
-      var umol = v.bili * 17.1;
+      var umol = q(v.bili * 17.1);
       if ((umol >= 34 && umol < 34.2) || (umol > 50 && umol <= 51.3)) warnings.push('Bilirubin ' + fx(umol, 1) + ' µmol/L lies between the exact (34.2 / 51.3 µmol/L) and rounded (34 / 50 µmol/L) SI cut-offs; the score uses the original mg/dL thresholds.');
       return {
         value: String(s), unit: 'points', label: 'Child–Pugh score (5–15)', band: r.band, title: r.title,
@@ -1310,8 +1313,7 @@
     },
     formula: 'MELD(i) as for MELD (rounded to one decimal × 10).\nIf MELD(i) > 11: MELD-Na = MELD(i) + 1.32 × (137 − Na) − 0.033 × MELD(i) × (137 − Na)\nNa bounded to 125–137 mmol/L; result rounded; maximum 40.',
     pearls: [
-      'Kim 2008: each 1 mmol/L fall in sodium between 125 and 140 mmol/L increased mortality risk, independently of MELD.',
-      'Correction of sodium (e.g. by infusion) changes the score without changing prognosis — use the steady-state value.'
+      'Kim 2008: lower serum sodium (between 125 and 140 mmol/L) predicted waiting-list death independently of MELD.'
     ].concat(MELD_COMMON_PEARLS),
     references: [R.kim2008, R.optn, R.martin2014]
   };
@@ -1427,7 +1429,7 @@
     },
     formula: 'APRI = (AST ÷ AST upper limit of normal) × 100 ÷ platelets (10⁹/L)\nSignificant fibrosis: ≤0.5 unlikely, >1.5 likely. Cirrhosis: <1.0 unlikely, >2.0 likely.',
     pearls: [
-      'Derived in chronic hepatitis C (Wai 2003); performance is weaker in hepatitis B and fatty liver disease.',
+      'Derived in chronic hepatitis C (Wai 2003); performance is weaker in hepatitis B.',
       'High specificity but limited sensitivity for cirrhosis at the 2.0 cut-off: a low APRI does not exclude cirrhosis with certainty.',
       'Acute hepatitis, haemolysis, muscle injury and other causes of low platelets give misleading values.'
     ],

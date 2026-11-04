@@ -405,11 +405,11 @@
         suprascapular: [205, 20, 96, 26], 'n-subclavius': [334, 20, 126, 26],
         'trunk-upper': [266, 84, 78, 38], 'trunk-middle': [266, 232, 78, 38], 'trunk-lower': [266, 394, 78, 38],
         'div-up-post': [366, 66, 54, 28], 'div-up-ant': [366, 108, 54, 28], 'div-mid-post': [366, 210, 54, 28], 'div-mid-ant': [366, 254, 54, 28], 'div-low-post': [366, 366, 54, 28], 'div-low-ant': [366, 420, 54, 28],
-        'cord-post': [470, 126, 78, 38], 'cord-lat': [470, 300, 78, 38], 'cord-med': [470, 476, 78, 38],
-        'upper-subscapular': [628, 52, 132, 30], thoracodorsal: [628, 90, 132, 30], 'lower-subscapular': [628, 128, 132, 30], axillary: [628, 170, 132, 34], radial: [628, 214, 132, 34],
-        'lateral-pectoral': [628, 272, 132, 30], musculocutaneous: [628, 314, 132, 34], median: [628, 362, 132, 36],
-        'medial-pectoral': [628, 418, 132, 30], 'mcn-arm': [628, 458, 132, 30], 'mcn-forearm': [628, 500, 132, 38], ulnar: [628, 548, 132, 34]
-      }, heads: [[170, 'Roots'], [266, 'Trunks'], [366, 'Divisions'], [470, 'Cords'], [628, 'Branches']], headY: 590 },
+        'cord-post': [470, 126, 80, 38], 'cord-lat': [470, 300, 78, 38], 'cord-med': [470, 476, 78, 38],
+        'upper-subscapular': [626, 52, 140, 30], thoracodorsal: [626, 90, 140, 30], 'lower-subscapular': [626, 128, 140, 30], axillary: [626, 170, 140, 34], radial: [626, 214, 140, 34],
+        'lateral-pectoral': [626, 272, 140, 30], musculocutaneous: [626, 314, 140, 34], median: [626, 362, 140, 36],
+        'medial-pectoral': [626, 418, 140, 30], 'mcn-arm': [626, 458, 140, 30], 'mcn-forearm': [626, 500, 140, 38], ulnar: [626, 548, 140, 34]
+      }, heads: [[170, 'Roots'], [266, 'Trunks'], [366, 'Divisions'], [470, 'Cords'], [626, 'Branches']], headY: 590 },
       narrow: { vb: [380, 612], font: 11.5, pos: {
         'long-thoracic': [58, 14, 108, 22], 'dorsal-scapular': [86, 44, 104, 22],
         suprascapular: [206, 14, 94, 22], 'n-subclavius': [316, 14, 112, 22],
