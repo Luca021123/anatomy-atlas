@@ -1406,7 +1406,7 @@
         h('button.btn.btn-sm', { type: 'button', onclick: function () {
           MT.clear(printEl);
           printEl.appendChild(h('pre', { style: 'white-space:pre-wrap;font-family:inherit;font-size:12pt' }, planText(L.normalizeSafetyPlan(work))));
-          MT.print(container);
+          MT.print(printEl); // core isolates the element; .h2-printonly shows only in print
         } }, ico('🖨️'), t('Print')),
         h('button.btn.btn-sm.btn-ghost', { type: 'button', style: 'color:var(--danger)', onclick: function () {
           MT.confirm(t('Delete your safety plan from this phone?'), { danger: true, okLabel: t('Delete') }).then(function (ok) {

@@ -71,9 +71,10 @@ test('PSI: every item carries its published weight (worked example)', () => {
   // 60 + 10 + 10 + 20 + 30 + 20 + 10 = 160 -> class V.
   const r = run('psi-port', { age: 70, sex: 'female', nursing: true, chf: true, rr: true, ph: true, bun: true, effusion: true });
   assert.equal(r.value, 'V'); assert.match(r.title, /160 points/);
-  // Every item ticked adds 295 points to age: 100 + 295 = 395.
+  // All 19 non-age items (Fine 1997): nursing home 10; comorbidities 30+20+10+10+10 = 80;
+  // examination 20+20+20+15+10 = 85; laboratory/radiographic 30+20+20+10+10+10+10 = 110. Total 285, so 100 + 285 = 385.
   const max = run('psi-port', Object.assign({ age: 100, sex: 'male' }, allTrue('psi-port')));
-  assert.equal(max.value, 'V'); assert.match(max.title, /395 points/);
+  assert.equal(max.value, 'V'); assert.match(max.title, /385 points/);
 });
 
 /* ---------------- Centor / McIsaac ---------------- */
